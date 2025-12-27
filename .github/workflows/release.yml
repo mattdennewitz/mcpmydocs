@@ -17,7 +17,7 @@ jobs:
             goos: darwin
             goarch: arm64
             name: darwin_arm64
-          - os: macos-13
+          - os: macos-13-large
             goos: darwin
             goarch: amd64
             name: darwin_amd64
@@ -25,10 +25,6 @@ jobs:
             goos: linux
             goarch: amd64
             name: linux_amd64
-          - os: ubuntu-24.04-arm
-            goos: linux
-            goarch: arm64
-            name: linux_arm64
 
     runs-on: ${{ matrix.os }}
 
