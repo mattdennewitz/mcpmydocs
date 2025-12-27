@@ -49,16 +49,11 @@ detect_platform() {
 
     # Check for available pre-built binaries
     case "$PLATFORM" in
-        darwin_arm64|linux_amd64)
+        darwin_arm64|linux_amd64|linux_arm64)
             info "Detected platform: $PLATFORM"
             ;;
         darwin_amd64)
             error "Intel Mac binaries are not available. Please build from source:
-    git clone https://github.com/${REPO}.git
-    cd mcpmydocs && go build -o mcpmydocs main.go"
-            ;;
-        linux_arm64)
-            error "Linux ARM64 binaries are not available. Please build from source:
     git clone https://github.com/${REPO}.git
     cd mcpmydocs && go build -o mcpmydocs main.go"
             ;;

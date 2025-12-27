@@ -12,13 +12,14 @@ A local-first semantic search engine for Markdown documentation. Indexes your do
 
 ## Requirements
 
-- macOS (Apple Silicon or Intel) or Linux
+- macOS Apple Silicon, Linux x64, or Linux ARM64 (pre-built binaries)
+- macOS Intel (build from source)
 - ONNX Runtime library
 - Embedding model files
 
 ## Installation
 
-### Quick install (recommended)
+### Quick install (macOS Apple Silicon / Linux)
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/mattdennewitz/mcpmydocs/main/install.sh | bash
@@ -30,6 +31,8 @@ This will:
 - Download the embedding model to `~/.local/share/mcpmydocs`
 
 **Note:** You still need ONNX Runtime installed (see below).
+
+For macOS Intel, see [Building from source](#building-from-source).
 
 ### Manual installation
 
