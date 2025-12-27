@@ -12,13 +12,61 @@ A local-first semantic search engine for Markdown documentation. Indexes your do
 
 ## Requirements
 
-- macOS (Apple Silicon or Intel)
-- Homebrew
-- Go 1.24+
+- macOS (Apple Silicon or Intel) or Linux
+- ONNX Runtime library
+- Embedding model files
 
 ## Installation
 
-### 1. Clone and build
+### Using a pre-built binary
+
+If you have a pre-built binary, you need to install the dependencies manually:
+
+#### 1. Install ONNX Runtime
+
+**macOS (Homebrew):**
+```bash
+brew install onnxruntime
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Download from https://github.com/microsoft/onnxruntime/releases
+# Extract and copy libonnxruntime.so to /usr/local/lib/
+sudo ldconfig
+```
+
+Alternatively, place the library in a `lib/` directory next to the binary, or set the `ONNX_LIBRARY_PATH` environment variable.
+
+#### 2. Download the embedding model
+
+Download the model files and place them in an `assets/models/` directory next to the binary:
+
+```bash
+mkdir -p assets/models
+
+# Download embedding model (~90MB)
+curl -L -o assets/models/embed.onnx \
+  "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
+
+# Download tokenizer
+curl -L -o assets/models/tokenizer.json \
+  "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
+```
+
+Alternatively, set the `MCPMYDOCS_MODEL_PATH` environment variable to point to the model file.
+
+#### 3. Verify installation
+
+```bash
+./mcpmydocs --help
+```
+
+### Building from source
+
+Requires Go 1.24+ and Homebrew (macOS).
+
+#### 1. Clone and build
 
 ```bash
 git clone https://github.com/yourusername/mcpmydocs.git
@@ -32,7 +80,7 @@ This will:
 - Download the embedding model (~90MB) and tokenizer
 - Build the binary to `dist/mcpmydocs`
 
-### 2. Verify installation
+#### 2. Verify installation
 
 ```bash
 ./dist/mcpmydocs --help
