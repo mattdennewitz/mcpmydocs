@@ -18,7 +18,20 @@ A local-first semantic search engine for Markdown documentation. Indexes your do
 
 ## Installation
 
-### Using a pre-built binary
+### Quick install (recommended)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/mattdennewitz/mcpmydocs/main/install.sh | bash
+```
+
+This will:
+- Download the latest release for your platform
+- Install the binary to `~/.local/bin`
+- Download the embedding model to `~/.local/share/mcpmydocs`
+
+**Note:** You still need ONNX Runtime installed (see below).
+
+### Manual installation
 
 If you have a pre-built binary, you need to install the dependencies manually:
 

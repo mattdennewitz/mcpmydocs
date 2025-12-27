@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            name: darwin_arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            name: darwin_amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            name: linux_amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            name: linux_arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install dependencies (macOS)
+        if: matrix.goos == 'darwin'
+        run: |
+          brew install onnxruntime duckdb
+
+      - name: Install dependencies (Linux)
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+
+          # Install ONNX Runtime
+          ONNX_VERSION="1.19.2"
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            ONNX_ARCH="aarch64"
+          else
+            ONNX_ARCH="x64"
+          fi
+          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz"
+          tar -xzf onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz
+          sudo cp onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/* /usr/local/lib/
+          sudo ldconfig
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o mcpmydocs main.go
+
+      - name: Create archive
+        run: |
+          tar -czf mcpmydocs_${{ matrix.name }}.tar.gz mcpmydocs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpmydocs_${{ matrix.name }}
+          path: mcpmydocs_${{ matrix.name }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

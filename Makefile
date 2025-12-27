@@ -60,6 +60,36 @@ clean:
 	rm -rf $(DIST_DIR)
 	rm -rf assets/models/*.onnx
 
+## Release builds (cross-platform)
+PLATFORMS=darwin_amd64 darwin_arm64 linux_amd64 linux_arm64
+VERSION?=$(shell git describe --tags --always 2>/dev/null || echo "dev")
+
+release:
+	@echo "Building release binaries for version $(VERSION)..."
+	@mkdir -p $(DIST_DIR)/release
+	@for platform in $(PLATFORMS); do \
+		GOOS=$$(echo $$platform | cut -d_ -f1); \
+		GOARCH=$$(echo $$platform | cut -d_ -f2); \
+		output="$(DIST_DIR)/release/$(BINARY_NAME)_$$platform"; \
+		echo "Building $$platform..."; \
+		mkdir -p $$output; \
+		CGO_ENABLED=1 GOOS=$$GOOS GOARCH=$$GOARCH go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $$output/$(BINARY_NAME) main.go || continue; \
+		tar -czf $$output.tar.gz -C $$output $(BINARY_NAME); \
+		rm -rf $$output; \
+	done
+	@echo "Release binaries created in $(DIST_DIR)/release/"
+
+release-local:
+	@echo "Building release binary for current platform..."
+	@mkdir -p $(DIST_DIR)/release
+	@platform="$$(go env GOOS)_$$(go env GOARCH)"; \
+	output="$(DIST_DIR)/release/$(BINARY_NAME)_$$platform"; \
+	mkdir -p $$output; \
+	go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $$output/$(BINARY_NAME) main.go; \
+	tar -czf $$output.tar.gz -C $$output $(BINARY_NAME); \
+	rm -rf $$output; \
+	echo "Created $$output.tar.gz"
+
 ## Development Setup
 deps: install-deps install-go-modules
 	@echo "System and Go dependencies ready."
