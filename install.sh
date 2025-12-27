@@ -46,7 +46,26 @@ detect_platform() {
     esac
 
     PLATFORM="${OS}_${ARCH}"
-    info "Detected platform: $PLATFORM"
+
+    # Check for available pre-built binaries
+    case "$PLATFORM" in
+        darwin_arm64|linux_amd64)
+            info "Detected platform: $PLATFORM"
+            ;;
+        darwin_amd64)
+            error "Intel Mac binaries are not available. Please build from source:
+    git clone https://github.com/${REPO}.git
+    cd mcpmydocs && go build -o mcpmydocs main.go"
+            ;;
+        linux_arm64)
+            error "Linux ARM64 binaries are not available. Please build from source:
+    git clone https://github.com/${REPO}.git
+    cd mcpmydocs && go build -o mcpmydocs main.go"
+            ;;
+        *)
+            error "Unsupported platform: $PLATFORM"
+            ;;
+    esac
 }
 
 # Get the latest release version from GitHub
