@@ -30,6 +30,7 @@ markdown files using ONNX models and DuckDB. Includes a built-in MCP server.`,
 	}
 
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose debug logging")
+	rootCmd.PersistentFlags().StringVar(&cmd.OnnxLibraryPath, "onnx-lib", "", "Path to ONNX Runtime shared library")
 	rootCmd.AddCommand(cmd.NewIndexCmd(), cmd.NewSearchCmd(), cmd.NewRunCmd())
 
 	if err := rootCmd.Execute(); err != nil {

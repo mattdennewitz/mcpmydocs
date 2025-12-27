@@ -8,13 +8,17 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 
+	"mcpmydocs/internal/app"
 	"mcpmydocs/internal/chunker"
-	"mcpmydocs/internal/embedder"
 	"mcpmydocs/internal/logger"
 	"mcpmydocs/internal/store"
 )
@@ -47,157 +51,154 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s is not a directory", absDir)
 	}
 
-	// Setup paths
-	cwd, _ := os.Getwd()
-	dbPath := filepath.Join(cwd, "mcpmydocs.db")
-	modelPath := filepath.Join(cwd, "assets/models/embed.onnx")
-
-	// ONNX runtime library path
-	onnxLibPath, err := resolveONNXLibraryPath()
+	// Initialize app
+	cfg, err := app.DefaultPaths(OnnxLibraryPath)
 	if err != nil {
-		return fmt.Errorf("failed to locate ONNX runtime: %w", err)
+		return fmt.Errorf("failed to resolve paths: %w", err)
 	}
 
-	logger.Info("starting indexing", "directory", absDir, "database", dbPath)
-	logger.Debug("configuration", "model", modelPath, "onnxLib", onnxLibPath)
+	application, err := app.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize application: %w", err)
+	}
+	defer application.Close()
 
-	// Count markdown files first for progress bar
-	var totalFiles int
+	st := application.Store
+	emb := application.Embedder
+
+	logger.Info("starting indexing", "directory", absDir, "database", cfg.DBPath)
+	logger.Debug("configuration", "model", cfg.ModelPath, "onnxLib", cfg.OnnxLibraryPath)
+
+	// Initialize chunker
+	ch := chunker.New()
+
+	// Collect all markdown files first
+	var files []string
 	_ = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			totalFiles++
+			files = append(files, path)
 		}
 		return nil
 	})
+	totalFiles := len(files)
 
-	// Initialize store
-	st, err := store.New(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
-	defer st.Close()
+	// Process files concurrently
+	var (
+		processed atomic.Int32
+		indexed   atomic.Int32
+		skipped   atomic.Int32
+		printMu   sync.Mutex
+	)
 
-	// Initialize embedder
-	emb, err := embedder.New(modelPath, onnxLibPath)
-	if err != nil {
-		return fmt.Errorf("failed to create embedder: %w", err)
-	}
+	g, ctx := errgroup.WithContext(context.Background())
+	g.SetLimit(runtime.NumCPU())
 
-	// Initialize chunker
-	ch := chunker.New()
-
-	// Walk directory and index files
-	ctx := context.Background()
-	var indexed, skipped, processed int
-
-	err = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip non-markdown files
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			return nil
-		}
-
-		processed++
-		relPath, _ := filepath.Rel(absDir, path)
-		if relPath == "" {
-			relPath = filepath.Base(path)
-		}
-		// Truncate filename if too long
-		displayName := relPath
-		if len(displayName) > 50 {
-			displayName = "..." + displayName[len(displayName)-47:]
-		}
-		fmt.Printf("\r\033[K[%d/%d] %s", processed, totalFiles, displayName)
-
-		// Read file
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		// Calculate hash
-		hash := sha256.Sum256(content)
-		hashStr := hex.EncodeToString(hash[:])
-
-		// Check if unchanged
-		if st.FileUnchanged(ctx, path, hashStr) {
-			logger.Debug("file unchanged, skipping", "path", relPath)
-			skipped++
-			return nil
-		}
-
-		// Delete existing document
-		if err := st.DeleteDocumentByPath(ctx, path); err != nil {
-			// Continue anyway
-		}
-
-		// Extract title (first line or filename)
-		title := extractTitle(content, path)
-
-		// Insert document
-		docID, err := st.InsertDocument(ctx, path, hashStr, title)
-		if err != nil {
-			return fmt.Errorf("failed to insert document %s: %w", path, err)
-		}
-
-		// Chunk the file
-		chunks, err := ch.ChunkFile(content)
-		if err != nil {
-			return fmt.Errorf("failed to chunk %s: %w", path, err)
-		}
-
-		if len(chunks) == 0 {
-			indexed++
-			return nil
-		}
-
-		// Get embeddings for all chunks
-		texts := make([]string, len(chunks))
-		for i, c := range chunks {
-			texts[i] = c.Content
-		}
-
-		embedStart := time.Now()
-		embeddings, err := emb.Embed(texts)
-		if err != nil {
-			return fmt.Errorf("failed to embed chunks for %s: %w", path, err)
-		}
-		logger.Debug("chunks embedded", "path", relPath, "chunks", len(texts), "duration", time.Since(embedStart))
-
-		// Insert chunks
-		for i, c := range chunks {
-			storeChunk := store.Chunk{
-				HeadingPath:  c.HeadingPath,
-				HeadingLevel: c.HeadingLevel,
-				Content:      c.Content,
-				StartLine:    c.StartLine,
+	for _, path := range files {
+		path := path // capture loop variable
+		g.Go(func() error {
+			// Read file
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return nil // Skip unreadable files
 			}
-			if err := st.InsertChunk(ctx, docID, storeChunk, embeddings[i]); err != nil {
-				return fmt.Errorf("failed to insert chunk: %w", err)
-			}
-		}
 
-		logger.Debug("indexed file", "path", relPath, "chunks", len(chunks))
-		indexed++
-		return nil
-	})
+			// Calculate hash
+			hash := sha256.Sum256(content)
+			hashStr := hex.EncodeToString(hash[:])
+
+			// Check if unchanged
+			if st.FileUnchanged(ctx, path, hashStr) {
+				skipped.Add(1)
+				return nil
+			}
+
+			// Delete existing document
+			if err := st.DeleteDocumentByPath(ctx, path); err != nil {
+				// Continue anyway
+			}
+
+			// Extract title (first line or filename)
+			title := extractTitle(content, path)
+
+			// Insert document
+			docID, err := st.InsertDocument(ctx, path, hashStr, title)
+			if err != nil {
+				return fmt.Errorf("failed to insert document %s: %w", path, err)
+			}
+
+			// Chunk the file
+			chunks, err := ch.ChunkFile(content)
+			if err != nil {
+				return fmt.Errorf("failed to chunk %s: %w", path, err)
+			}
+
+			if len(chunks) == 0 {
+				indexed.Add(1)
+				return nil
+			}
+
+			// Get embeddings for all chunks
+			texts := make([]string, len(chunks))
+			for i, c := range chunks {
+				texts[i] = c.Content
+			}
+
+			embedStart := time.Now()
+			embeddings, err := emb.Embed(texts)
+			if err != nil {
+				return fmt.Errorf("failed to embed chunks for %s: %w", path, err)
+			}
+			
+			// Convert chunks to store.Chunk
+			storeChunks := make([]store.Chunk, len(chunks))
+			for i, c := range chunks {
+				storeChunks[i] = store.Chunk{
+					HeadingPath:  c.HeadingPath,
+					HeadingLevel: c.HeadingLevel,
+					Content:      c.Content,
+					StartLine:    c.StartLine,
+				}
+			}
+
+			// Insert chunks
+			if err := st.InsertChunks(ctx, docID, storeChunks, embeddings); err != nil {
+				return fmt.Errorf("failed to insert chunks: %w", err)
+			}
+
+			indexed.Add(1)
+			newProcessed := processed.Add(1)
+
+			// Update progress bar
+			printMu.Lock()
+			relPath, _ := filepath.Rel(absDir, path)
+			if relPath == "" {
+				relPath = filepath.Base(path)
+			}
+			// Truncate filename if too long
+			displayName := relPath
+			if len(displayName) > 50 {
+				displayName = "..." + displayName[len(displayName)-47:]
+			}
+			fmt.Printf("\r\033[K[%d/%d] %s (Embed: %v)", newProcessed, totalFiles, displayName, time.Since(embedStart).Round(time.Millisecond))
+			printMu.Unlock()
+
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
 
 	// Clear progress line
 	fmt.Printf("\r\033[K")
 
-	if err != nil {
-		return err
-	}
-
 	fmt.Printf("Indexing complete!\n")
-	fmt.Printf("  Indexed: %d files\n", indexed)
-	fmt.Printf("  Skipped: %d unchanged files\n", skipped)
+	fmt.Printf("  Indexed: %d files\n", indexed.Load())
+	fmt.Printf("  Skipped: %d unchanged files\n", skipped.Load())
 
 	return nil
 }

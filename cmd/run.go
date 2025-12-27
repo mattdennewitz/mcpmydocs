@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"mcpmydocs/internal/app"
 	"mcpmydocs/internal/embedder"
 	"mcpmydocs/internal/logger"
 	"mcpmydocs/internal/store"
@@ -50,35 +50,26 @@ type ListDocumentsOutput struct {
 }
 
 func runMCPServer(cmd *cobra.Command, args []string) error {
-	// Setup paths
-	cwd, _ := os.Getwd()
-	dbPath := filepath.Join(cwd, "mcpmydocs.db")
-	modelPath := filepath.Join(cwd, "assets/models/embed.onnx")
+	// Initialize app
+	cfg, err := app.DefaultPaths(OnnxLibraryPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve paths: %w", err)
+	}
 
 	// Check if database exists
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", dbPath)
+	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
+		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", cfg.DBPath)
 	}
 
-	// ONNX runtime library path
-	onnxLibPath := "/opt/homebrew/lib/libonnxruntime.dylib"
-	if _, err := os.Stat(onnxLibPath); os.IsNotExist(err) {
-		onnxLibPath = "/usr/local/lib/libonnxruntime.dylib"
-	}
-
-	// Initialize store
-	var err error
-	mcpStore, err = store.New(dbPath)
+	application, err := app.New(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		return fmt.Errorf("failed to initialize application: %w", err)
 	}
-	defer mcpStore.Close()
+	defer application.Close()
 
-	// Initialize embedder
-	mcpEmbedder, err = embedder.New(modelPath, onnxLibPath)
-	if err != nil {
-		return fmt.Errorf("failed to create embedder: %w", err)
-	}
+	// Assign globals for handlers
+	mcpStore = application.Store
+	mcpEmbedder = application.Embedder
 
 	// Create MCP server
 	server := mcp.NewServer(&mcp.Implementation{

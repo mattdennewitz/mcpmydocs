@@ -52,7 +52,11 @@ func TestL2Normalize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := l2Normalize(tt.input)
+			// Make a copy to avoid modifying the test case input
+			result := make([]float32, len(tt.input))
+			copy(result, tt.input)
+			
+			l2Normalize(result)
 
 			// Check length preserved
 			if len(result) != len(tt.input) {
@@ -87,12 +91,12 @@ func TestL2Normalize(t *testing.T) {
 func TestL2Normalize_Correctness(t *testing.T) {
 	// Test with known values: [3, 4, 0] should normalize to [0.6, 0.8, 0]
 	input := []float32{3, 4, 0}
-	result := l2Normalize(input)
+	l2Normalize(input)
 
 	expected := []float32{0.6, 0.8, 0}
-	for i := range result {
-		if math.Abs(float64(result[i]-expected[i])) > 1e-5 {
-			t.Errorf("index %d: expected %f, got %f", i, expected[i], result[i])
+	for i := range input {
+		if math.Abs(float64(input[i]-expected[i])) > 1e-5 {
+			t.Errorf("index %d: expected %f, got %f", i, expected[i], input[i])
 		}
 	}
 }
@@ -514,6 +518,7 @@ func BenchmarkL2Normalize(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		// We re-use input. It will shrink towards zero but it's fine for benchmarking logic overhead.
 		l2Normalize(input)
 	}
 }

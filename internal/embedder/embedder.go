@@ -27,6 +27,7 @@ var (
 type Embedder struct {
 	modelPath string
 	vocab     map[string]int64
+	session   *ort.DynamicAdvancedSession
 }
 
 // New creates a new Embedder.
@@ -47,10 +48,30 @@ func New(modelPath, onnxLibPath string) (*Embedder, error) {
 		return nil, fmt.Errorf("failed to load tokenizer: %w", err)
 	}
 
+	// Create persistent dynamic session
+	session, err := ort.NewDynamicAdvancedSession(
+		modelPath,
+		[]string{"input_ids", "attention_mask", "token_type_ids"},
+		[]string{"last_hidden_state"},
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
 	return &Embedder{
 		modelPath: modelPath,
 		vocab:     vocab,
+		session:   session,
 	}, nil
+}
+
+// Close destroys the ONNX session.
+func (e *Embedder) Close() error {
+	if e.session != nil {
+		return e.session.Destroy()
+	}
+	return nil
 }
 
 // loadVocab loads the vocabulary from tokenizer.json
@@ -85,8 +106,6 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 	batchSize := int64(len(texts))
 
 	// Simple tokenization: convert to token IDs
-	// For a proper implementation, you'd use a real tokenizer
-	// Here we use a simplified approach that works with the model
 	inputIDs, attentionMask := e.tokenize(texts)
 	seqLen := int64(MaxSeqLen)
 
@@ -114,7 +133,7 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 	defer tokenTypeIDsTensor.Destroy()
 
 	// Create output tensor
-	// The model outputs [batch_size, seq_len, hidden_size], we need to pool to [batch_size, hidden_size]
+	// The model outputs [batch_size, seq_len, hidden_size]
 	outputShape := ort.NewShape(batchSize, seqLen, int64(EmbeddingDim))
 	outputTensor, err := ort.NewEmptyTensor[float32](outputShape)
 	if err != nil {
@@ -122,21 +141,12 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 	}
 	defer outputTensor.Destroy()
 
-	// Create session and run
-	session, err := ort.NewAdvancedSession(
-		e.modelPath,
-		[]string{"input_ids", "attention_mask", "token_type_ids"},
-		[]string{"last_hidden_state"},
+	// Run inference
+	err = e.session.Run(
 		[]ort.ArbitraryTensor{inputIDsTensor, attentionMaskTensor, tokenTypeIDsTensor},
 		[]ort.ArbitraryTensor{outputTensor},
-		nil,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
-	}
-	defer session.Destroy()
-
-	if err := session.Run(); err != nil {
 		return nil, fmt.Errorf("failed to run inference: %w", err)
 	}
 
@@ -166,8 +176,8 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 			}
 		}
 
-		// L2 normalize
-		embedding = l2Normalize(embedding)
+		// L2 normalize (in-place)
+		l2Normalize(embedding)
 		embeddings[b] = embedding
 	}
 
@@ -233,18 +243,23 @@ func (e *Embedder) tokenize(texts []string) ([]int64, []int64) {
 	return inputIDs, attentionMask
 }
 
-// tokenizeText splits text into words, handling punctuation.
+// tokenizeText splits text into words, handling punctuation and CJK characters.
 func tokenizeText(text string) []string {
 	var words []string
 	var current strings.Builder
 
 	for _, r := range text {
+		// Skip control characters
+		if unicode.IsControl(r) {
+			continue
+		}
+
 		if unicode.IsSpace(r) {
 			if current.Len() > 0 {
 				words = append(words, current.String())
 				current.Reset()
 			}
-		} else if unicode.IsPunct(r) {
+		} else if unicode.IsPunct(r) || unicode.IsSymbol(r) || isCJK(r) {
 			if current.Len() > 0 {
 				words = append(words, current.String())
 				current.Reset()
@@ -258,6 +273,12 @@ func tokenizeText(text string) []string {
 		words = append(words, current.String())
 	}
 	return words
+}
+
+func isCJK(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		(r >= 0x3040 && r <= 0x30ff) || // Hiragana and Katakana
+		(r >= 0xac00 && r <= 0xd7af)    // Hangul
 }
 
 // wordPieceTokenize applies WordPiece algorithm to a single word.
@@ -310,18 +331,16 @@ func (e *Embedder) wordPieceTokenize(word string) []int64 {
 	return tokens
 }
 
-func l2Normalize(v []float32) []float32 {
+func l2Normalize(v []float32) {
 	var sum float32
 	for _, x := range v {
 		sum += x * x
 	}
 	if sum == 0 {
-		return v
+		return
 	}
 	norm := float32(1.0 / math.Sqrt(float64(sum)))
-	result := make([]float32, len(v))
-	for i, x := range v {
-		result[i] = x * norm
+	for i := range v {
+		v[i] *= norm
 	}
-	return result
 }

@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"mcpmydocs/internal/embedder"
+	"mcpmydocs/internal/app"
 	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/store"
 )
 
 var searchLimit int
@@ -34,14 +32,15 @@ func NewSearchCmd() *cobra.Command {
 func runSearch(cmd *cobra.Command, args []string) error {
 	query := strings.Join(args, " ")
 
-	// Setup paths
-	cwd, _ := os.Getwd()
-	dbPath := filepath.Join(cwd, "mcpmydocs.db")
-	modelPath := filepath.Join(cwd, "assets/models/embed.onnx")
+	// Initialize app
+	cfg, err := app.DefaultPaths(OnnxLibraryPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve paths: %w", err)
+	}
 
 	// Check if database exists
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", dbPath)
+	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
+		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", cfg.DBPath)
 	}
 
 	// Validate limit
@@ -53,27 +52,17 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		searchLimit = 100
 	}
 
-	// ONNX runtime library path
-	onnxLibPath, err := resolveONNXLibraryPath()
-	if err != nil {
-		return fmt.Errorf("failed to locate ONNX runtime: %w", err)
-	}
-
-	logger.Debug("search configuration", "database", dbPath, "model", modelPath, "onnxLib", onnxLibPath)
+	logger.Debug("search configuration", "database", cfg.DBPath, "model", cfg.ModelPath, "onnxLib", cfg.OnnxLibraryPath)
 	logger.Info("searching", "query", query, "limit", searchLimit)
 
-	// Initialize store
-	st, err := store.New(dbPath)
+	application, err := app.New(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		return fmt.Errorf("failed to initialize application: %w", err)
 	}
-	defer st.Close()
+	defer application.Close()
 
-	// Initialize embedder
-	emb, err := embedder.New(modelPath, onnxLibPath)
-	if err != nil {
-		return fmt.Errorf("failed to create embedder: %w", err)
-	}
+	st := application.Store
+	emb := application.Embedder
 
 	// Embed the query
 	embedStart := time.Now()

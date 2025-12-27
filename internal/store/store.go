@@ -137,17 +137,60 @@ type Chunk struct {
 
 // InsertChunk inserts a chunk with its embedding.
 func (s *Store) InsertChunk(ctx context.Context, docID int, chunk Chunk, embedding []float32) error {
-	arrayStr := floatSliceToArrayString(embedding)
+	var embeddingParam any
+	if len(embedding) > 0 {
+		embeddingParam = floatSliceToArrayString(embedding)
+	}
 
-	query := fmt.Sprintf(`
+	query := `
 		INSERT INTO chunks (document_id, heading_path, heading_level, content, start_line, embedding)
-		VALUES (?, ?, ?, ?, ?, %s::FLOAT[384])
-	`, arrayStr)
+		VALUES (?, ?, ?, ?, ?, ?::FLOAT[384])
+	`
 
 	_, err := s.db.ExecContext(ctx, query,
-		docID, chunk.HeadingPath, chunk.HeadingLevel, chunk.Content, chunk.StartLine,
+		docID, chunk.HeadingPath, chunk.HeadingLevel, chunk.Content, chunk.StartLine, embeddingParam,
 	)
 	return err
+}
+
+// InsertChunks inserts multiple chunks in a single transaction.
+func (s *Store) InsertChunks(ctx context.Context, docID int, chunks []Chunk, embeddings [][]float32) error {
+	if len(chunks) != len(embeddings) {
+		return fmt.Errorf("chunks and embeddings count mismatch: %d != %d", len(chunks), len(embeddings))
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	query := `
+		INSERT INTO chunks (document_id, heading_path, heading_level, content, start_line, embedding)
+		VALUES (?, ?, ?, ?, ?, ?::FLOAT[384])
+	`
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for i, chunk := range chunks {
+		var embeddingParam any
+		if len(embeddings[i]) > 0 {
+			embeddingParam = floatSliceToArrayString(embeddings[i])
+		}
+
+		_, err := stmt.ExecContext(ctx, docID, chunk.HeadingPath, chunk.HeadingLevel, chunk.Content, chunk.StartLine, embeddingParam)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // floatSliceToArrayString converts []float32 to DuckDB array literal.
@@ -191,13 +234,10 @@ func (s *Store) Search(ctx context.Context, queryEmbedding []float32, limit int)
 	if limit <= 0 {
 		return nil, fmt.Errorf("limit must be positive")
 	}
-	if limit > 1000 {
-		limit = 1000 // Hard cap at store level
-	}
 
 	arrayStr := floatSliceToArrayString(queryEmbedding)
 
-	query := fmt.Sprintf(`
+	query := `
 		SELECT
 			c.id,
 			d.file_path,
@@ -205,14 +245,14 @@ func (s *Store) Search(ctx context.Context, queryEmbedding []float32, limit int)
 			c.heading_path,
 			c.content,
 			c.start_line,
-			array_cosine_distance(c.embedding, %s::FLOAT[384]) as distance
+			array_cosine_distance(c.embedding, ?::FLOAT[384]) as distance
 		FROM chunks c
 		JOIN documents d ON c.document_id = d.id
 		ORDER BY distance ASC
 		LIMIT ?
-	`, arrayStr)
+	`
 
-	rows, err := s.db.QueryContext(ctx, query, limit)
+	rows, err := s.db.QueryContext(ctx, query, arrayStr, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search query failed: %w", err)
 	}

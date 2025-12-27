@@ -6,8 +6,9 @@ require (
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/spf13/cobra v1.8.1
-	github.com/yalue/onnxruntime_go v1.12.0
+	github.com/yalue/onnxruntime_go v1.9.0
 	github.com/yuin/goldmark v1.7.13
+	golang.org/x/sync v0.15.0
 )
 
 require (
@@ -27,7 +28,6 @@ require (
 	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c // indirect
 	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/tools v0.34.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
