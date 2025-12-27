@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	// Version is set during build time
-	Version = "0.1.0-dev"
+	// Version is set during build via -ldflags
+	Version = "0.1.0"
 
 	// verbose enables debug logging
 	verbose bool
@@ -31,7 +31,16 @@ markdown files using ONNX models and DuckDB. Includes a built-in MCP server.`,
 
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose debug logging")
 	rootCmd.PersistentFlags().StringVar(&cmd.OnnxLibraryPath, "onnx-lib", "", "Path to ONNX Runtime shared library")
-	rootCmd.AddCommand(cmd.NewIndexCmd(), cmd.NewSearchCmd(), cmd.NewRunCmd())
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print the version number",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("mcpmydocs %s\n", Version)
+		},
+	}
+
+	rootCmd.AddCommand(cmd.NewIndexCmd(), cmd.NewSearchCmd(), cmd.NewRunCmd(), versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
