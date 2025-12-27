@@ -61,7 +61,7 @@ jobs:
           fi
           wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz"
           tar -xzf onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz
-          sudo cp onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/* /usr/local/lib/
+          sudo cp onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/*.so* /usr/local/lib/
           sudo ldconfig
 
       - name: Get version
