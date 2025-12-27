@@ -1,0 +1,6 @@
+brew "duckdb"
+brew "onnxruntime"
+brew "go"
+brew "golangci-lint"
+brew "jq"
+brew "llvm"
