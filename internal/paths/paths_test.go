@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -122,7 +123,7 @@ func TestResolveONNXLibraryPath_LibraryName(t *testing.T) {
 	_, err := ResolveONNXLibraryPath("")
 	if err != nil {
 		// Check error message contains correct library name
-		if !contains(err.Error(), expectedSuffix) {
+		if !strings.Contains(err.Error(), expectedSuffix) {
 			t.Errorf("error should mention %s, got: %v", expectedSuffix, err)
 		}
 	}
@@ -224,20 +225,8 @@ func TestResolveModelPath_NotFound(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when model not found")
 	}
-	if !contains(err.Error(), "embed.onnx") {
+	if !strings.Contains(err.Error(), "embed.onnx") {
 		t.Errorf("error should mention embed.onnx: %v", err)
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
-}
-
-func containsImpl(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

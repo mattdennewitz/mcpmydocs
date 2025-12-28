@@ -50,8 +50,10 @@ func (a *App) Close() error {
 	if err := a.Store.Close(); err != nil {
 		errs = append(errs, err)
 	}
-	// Embedder doesn't currently have a Close method but if it did, we'd call it here.
-	
+	if err := a.Embedder.Close(); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing app: %v", errs)
 	}

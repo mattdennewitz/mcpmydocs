@@ -102,7 +102,8 @@ func runIndex(cmd *cobra.Command, args []string) error {
 			// Read file
 			content, err := os.ReadFile(path)
 			if err != nil {
-				return nil // Skip unreadable files
+				logger.Warn("skipping unreadable file", "path", path, "error", err)
+				return nil
 			}
 
 			// Calculate hash
@@ -117,7 +118,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 			// Delete existing document
 			if err := st.DeleteDocumentByPath(ctx, path); err != nil {
-				// Continue anyway
+				logger.Warn("failed to delete existing document", "path", path, "error", err)
 			}
 
 			// Extract title (first line or filename)

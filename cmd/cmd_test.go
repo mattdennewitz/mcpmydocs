@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -238,10 +239,10 @@ func TestHandleListDocuments_WithDocuments(t *testing.T) {
 	}
 
 	// Should mention both documents
-	if !contains(output.Documents, "First Document") {
+	if !strings.Contains(output.Documents, "First Document") {
 		t.Error("output should contain 'First Document'")
 	}
-	if !contains(output.Documents, "Second Document") {
+	if !strings.Contains(output.Documents, "Second Document") {
 		t.Error("output should contain 'Second Document'")
 	}
 }
@@ -373,15 +374,3 @@ func TestHandleSearch_NoResults(t *testing.T) {
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

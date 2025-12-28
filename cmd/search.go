@@ -24,7 +24,7 @@ func NewSearchCmd() *cobra.Command {
 		RunE:  runSearch,
 	}
 
-	cmd.Flags().IntVarP(&searchLimit, "limit", "n", 5, "Maximum number of results to return")
+	cmd.Flags().IntVarP(&searchLimit, "limit", "n", DefaultSearchLimit, "Maximum number of results to return")
 
 	return cmd
 }
@@ -44,12 +44,12 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate limit
-	if searchLimit < 1 {
-		return fmt.Errorf("limit must be at least 1")
+	if searchLimit < MinSearchLimit {
+		return fmt.Errorf("limit must be at least %d", MinSearchLimit)
 	}
-	if searchLimit > 100 {
-		logger.Warn("limit capped at maximum", "requested", searchLimit, "max", 100)
-		searchLimit = 100
+	if searchLimit > MaxSearchLimit {
+		logger.Warn("limit capped at maximum", "requested", searchLimit, "max", MaxSearchLimit)
+		searchLimit = MaxSearchLimit
 	}
 
 	logger.Debug("search configuration", "database", cfg.DBPath, "model", cfg.ModelPath, "onnxLib", cfg.OnnxLibraryPath)

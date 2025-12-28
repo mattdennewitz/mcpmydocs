@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,6 +15,13 @@ import (
 	"mcpmydocs/internal/embedder"
 	"mcpmydocs/internal/logger"
 	"mcpmydocs/internal/store"
+)
+
+// Search limit constants
+const (
+	DefaultSearchLimit = 5
+	MaxSearchLimit     = 20
+	MinSearchLimit     = 1
 )
 
 // Global instances for the MCP server handlers
@@ -65,6 +74,21 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize application: %w", err)
 	}
+
+	// Setup graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		logger.Info("shutdown signal received, cleaning up...")
+		cancel()
+		application.Close()
+	}()
+
 	defer application.Close()
 
 	// Assign globals for handlers
@@ -90,7 +114,11 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}, handleListDocuments)
 
 	// Start server on stdio
-	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
+		// Context cancellation is expected on shutdown
+		if ctx.Err() != nil {
+			return nil
+		}
 		return fmt.Errorf("server error: %w", err)
 	}
 
@@ -111,13 +139,13 @@ func handleSearch(ctx context.Context, req *mcp.CallToolRequest, input SearchInp
 	// Set default and clamp limit
 	limit := input.Limit
 	if limit == 0 {
-		limit = 5
+		limit = DefaultSearchLimit
 	}
-	if limit > 20 {
-		limit = 20
+	if limit > MaxSearchLimit {
+		limit = MaxSearchLimit
 	}
-	if limit < 1 {
-		limit = 1
+	if limit < MinSearchLimit {
+		limit = MinSearchLimit
 	}
 
 	// Embed the query
