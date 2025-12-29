@@ -109,18 +109,32 @@ install_models() {
     MODEL_DIR="$ASSETS_DIR/models"
     mkdir -p "$MODEL_DIR"
 
-    if [ -f "$MODEL_DIR/embed.onnx" ] && [ -f "$MODEL_DIR/tokenizer.json" ]; then
-        info "Model files already exist, skipping download"
-        return
+    # Embedding model (required)
+    if [ -f "$MODEL_DIR/embed.onnx" ]; then
+        info "Embedding model already exists, skipping"
+    else
+        info "Downloading embedding model (~90MB)..."
+        curl -sSL -o "$MODEL_DIR/embed.onnx" \
+            "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
     fi
 
-    info "Downloading embedding model (~90MB)..."
-    curl -sSL -o "$MODEL_DIR/embed.onnx" \
-        "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
+    # Tokenizer (required)
+    if [ -f "$MODEL_DIR/tokenizer.json" ]; then
+        info "Tokenizer already exists, skipping"
+    else
+        info "Downloading tokenizer..."
+        curl -sSL -o "$MODEL_DIR/tokenizer.json" \
+            "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
+    fi
 
-    info "Downloading tokenizer..."
-    curl -sSL -o "$MODEL_DIR/tokenizer.json" \
-        "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
+    # Reranker model (optional, improves search relevance)
+    if [ -f "$MODEL_DIR/rerank.onnx" ]; then
+        info "Reranker model already exists, skipping"
+    else
+        info "Downloading reranker model (~90MB)..."
+        curl -sSL -o "$MODEL_DIR/rerank.onnx" \
+            "https://huggingface.co/BAAI/bge-reranker-base/resolve/main/onnx/model.onnx"
+    fi
 
     success "Model files installed to $MODEL_DIR"
 }
@@ -160,15 +174,11 @@ print_instructions() {
     echo ""
     success "Installation complete!"
     echo ""
-    echo "Add to your PATH (if not already):"
-    echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
+    echo "Add to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
     echo ""
-    echo "Set the model path environment variable:"
-    echo "    export MCPMYDOCS_MODEL_PATH=\"$ASSETS_DIR/models/embed.onnx\""
-    echo ""
-    echo "Or add to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
     echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
     echo "    export MCPMYDOCS_MODEL_PATH=\"$ASSETS_DIR/models/embed.onnx\""
+    echo "    export MCPMYDOCS_RERANKER_PATH=\"$ASSETS_DIR/models/rerank.onnx\""
     echo ""
     echo "Then start indexing:"
     echo "    mcpmydocs index /path/to/your/docs"
