@@ -174,14 +174,14 @@ print_instructions() {
     echo ""
     success "Installation complete!"
     echo ""
-    echo "Add to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
+    echo "Add to your PATH (in ~/.bashrc, ~/.zshrc, etc.):"
     echo ""
     echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
-    echo "    export MCPMYDOCS_MODEL_PATH=\"$ASSETS_DIR/models/embed.onnx\""
-    echo "    export MCPMYDOCS_RERANKER_PATH=\"$ASSETS_DIR/models/rerank.onnx\""
     echo ""
     echo "Then start indexing:"
     echo "    mcpmydocs index /path/to/your/docs"
+    echo ""
+    echo "Models are installed to: $ASSETS_DIR/models/"
     echo ""
 }
 

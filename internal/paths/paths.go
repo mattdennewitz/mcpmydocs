@@ -86,11 +86,19 @@ func ResolveModelPath() (string, error) {
 		}
 	}
 
-	// 2. Executable relative (Deployment)
+	// 2. User data directory (install script location)
+	if home, err := os.UserHomeDir(); err == nil {
+		path := filepath.Join(home, ".local", "share", "mcpmydocs", "models", "embed.onnx")
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	// 3. Executable relative (Deployment)
 	exe, err := os.Executable()
 	if err == nil {
 		exeDir := filepath.Dir(exe)
-		
+
 		// Check "assets/models/embed.onnx" next to binary
 		path := filepath.Join(exeDir, "assets", "models", "embed.onnx")
 		if _, err := os.Stat(path); err == nil {
@@ -104,7 +112,7 @@ func ResolveModelPath() (string, error) {
 		}
 	}
 
-	// 3. CWD (Development fallback)
+	// 4. CWD (Development fallback)
 	cwd, err := os.Getwd()
 	if err == nil {
 		path := filepath.Join(cwd, "assets", "models", "embed.onnx")
@@ -113,7 +121,7 @@ func ResolveModelPath() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("model file 'embed.onnx' not found. Set MCPMYDOCS_MODEL_PATH or ensure 'assets' directory is near the executable")
+	return "", fmt.Errorf("model file 'embed.onnx' not found. Set MCPMYDOCS_MODEL_PATH or run the install script")
 }
 
 // ResolveRerankerModelPath attempts to find the reranker model file.
@@ -126,7 +134,15 @@ func ResolveRerankerModelPath() string {
 		}
 	}
 
-	// 2. Executable relative (Deployment)
+	// 2. User data directory (install script location)
+	if home, err := os.UserHomeDir(); err == nil {
+		path := filepath.Join(home, ".local", "share", "mcpmydocs", "models", "rerank.onnx")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	// 3. Executable relative (Deployment)
 	exe, err := os.Executable()
 	if err == nil {
 		exeDir := filepath.Dir(exe)
@@ -144,7 +160,7 @@ func ResolveRerankerModelPath() string {
 		}
 	}
 
-	// 3. CWD (Development fallback)
+	// 4. CWD (Development fallback)
 	cwd, err := os.Getwd()
 	if err == nil {
 		path := filepath.Join(cwd, "assets", "models", "rerank.onnx")

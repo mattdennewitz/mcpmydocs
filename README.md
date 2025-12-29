@@ -75,9 +75,14 @@ curl -L -o assets/models/rerank.onnx \
   "https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2/resolve/main/onnx/model.onnx"
 ```
 
-Alternatively, set environment variables to point to the model files:
+The application automatically searches for models in:
+1. `~/.local/share/mcpmydocs/models/` (install script location)
+2. `assets/models/` relative to the binary
+3. `assets/models/` in the current working directory
+
+You can override with environment variables if needed:
 - `MCPMYDOCS_MODEL_PATH` - path to embed.onnx
-- `MCPMYDOCS_RERANKER_PATH` - path to rerank.onnx (optional)
+- `MCPMYDOCS_RERANKER_PATH` - path to rerank.onnx
 
 #### 3. Verify installation
 
