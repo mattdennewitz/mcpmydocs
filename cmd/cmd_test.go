@@ -137,7 +137,6 @@ func TestRunIndex_InvalidDirectory(t *testing.T) {
 }
 
 func TestRunIndex_NotADirectory(t *testing.T) {
-	// Create a temp file (not directory)
 	tmpFile, err := os.CreateTemp("", "mcpmydocs-test-*.txt")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
@@ -154,7 +153,7 @@ func TestRunIndex_NotADirectory(t *testing.T) {
 	}
 }
 
-// setupTestMCPEnvironment creates a test environment for MCP handler tests
+// setupTestMCPEnvironment creates a test environment for MCP handler tests.
 func setupTestMCPEnvironment(t *testing.T) (func(), string) {
 	t.Helper()
 
@@ -170,7 +169,6 @@ func setupTestMCPEnvironment(t *testing.T) (func(), string) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
-	// Set global store for handlers
 	mcpStore = st
 	mcpSearch = nil
 
@@ -207,9 +205,8 @@ func TestHandleListDocuments_Empty(t *testing.T) {
 		t.Error("expected content in result")
 	}
 
-	// Should mention no documents
-	if output.Documents == "" {
-		t.Error("output.Documents is empty")
+	if !strings.Contains(output.Documents, "No documents indexed") {
+		t.Error("expected 'No documents indexed' message")
 	}
 }
 
@@ -219,7 +216,6 @@ func TestHandleListDocuments_WithDocuments(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Insert test documents
 	mcpStore.InsertDocument(ctx, "/doc1.md", "hash1", "First Document")
 	mcpStore.InsertDocument(ctx, "/doc2.md", "hash2", "Second Document")
 
@@ -235,12 +231,6 @@ func TestHandleListDocuments_WithDocuments(t *testing.T) {
 		t.Fatal("result is nil")
 	}
 
-	// Should contain document info
-	if output.Documents == "" {
-		t.Error("output.Documents is empty")
-	}
-
-	// Should mention both documents
 	if !strings.Contains(output.Documents, "First Document") {
 		t.Error("output should contain 'First Document'")
 	}
@@ -249,134 +239,165 @@ func TestHandleListDocuments_WithDocuments(t *testing.T) {
 	}
 }
 
-func TestHandleSearch_EmptyQuery(t *testing.T) {
+// TestHandleSearch_Integration tests the MCP handler with real components.
+// Unit tests for search logic are in internal/search/search_test.go.
+func TestHandleSearch_Integration(t *testing.T) {
 	cleanup, _ := setupTestMCPEnvironment(t)
 	defer cleanup()
 
-	// Create a search service with nil embedder
-	mcpSearch = search.New(mcpStore, nil, nil)
-
-	ctx := context.Background()
-	req := &mcp.CallToolRequest{}
-	input := SearchInput{Query: ""}
-
-	_, _, err := handleSearch(ctx, req, input)
-	if err == nil {
-		t.Error("expected error for empty query")
-	}
-}
-
-func TestHandleSearch_NoEmbedder(t *testing.T) {
-	cleanup, _ := setupTestMCPEnvironment(t)
-	defer cleanup()
-
-	// mcpSearch with nil embedder
-	mcpSearch = search.New(mcpStore, nil, nil)
-
-	ctx := context.Background()
-	req := &mcp.CallToolRequest{}
-	input := SearchInput{Query: "test query"}
-
-	_, _, err := handleSearch(ctx, req, input)
-	if err == nil {
-		t.Error("expected error when embedder is nil")
-	}
-}
-
-func TestHandleSearch_LimitClamping(t *testing.T) {
-	cleanup, tmpDir := setupTestMCPEnvironment(t)
-	defer cleanup()
-
-	// Try to set up embedder if model exists
-	cwd, _ := os.Getwd()
-	modelPath := filepath.Join(cwd, "../assets/models/embed.onnx")
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		modelPath = filepath.Join(cwd, "assets/models/embed.onnx")
+	// Find ONNX components
+	modelPath := findModelPath(t)
+	onnxLib := findONNXLib(t)
+	if modelPath == "" || onnxLib == "" {
+		t.Skip("ONNX model or library not available")
 	}
 
-	onnxLibPath := "/opt/homebrew/lib/libonnxruntime.dylib"
-	if _, err := os.Stat(onnxLibPath); os.IsNotExist(err) {
-		onnxLibPath = "/usr/local/lib/libonnxruntime.dylib"
-	}
-
-	emb, err := embedder.New(modelPath, onnxLibPath)
+	emb, err := embedder.New(modelPath, onnxLib)
 	if err != nil {
-		t.Skip("ONNX model not available, skipping search test")
+		t.Skipf("failed to create embedder: %v", err)
 	}
+	defer emb.Close()
+
 	mcpSearch = search.New(mcpStore, emb, nil)
 
 	ctx := context.Background()
 
-	// Insert a document with chunk
-	docID, _ := mcpStore.InsertDocument(ctx, "/test.md", "hash", "Test")
-	embedding := make([]float32, store.EmbeddingDim)
+	// Insert test data
+	docID, _ := mcpStore.InsertDocument(ctx, "/test.md", "hash", "Test Doc")
+	embeddings, _ := emb.Embed([]string{"test content for searching"})
 	chunk := store.Chunk{
-		HeadingPath:  "# Test",
+		HeadingPath:  "# Test Section",
 		HeadingLevel: 1,
-		Content:      "Test content for searching",
+		Content:      "test content for searching",
 		StartLine:    1,
 	}
-	mcpStore.InsertChunk(ctx, docID, chunk, embedding)
+	mcpStore.InsertChunk(ctx, docID, chunk, embeddings[0])
 
-	// Test limit clamping - negative limit should become 1
 	req := &mcp.CallToolRequest{}
-	input := SearchInput{Query: "test", Limit: -5}
 
-	result, _, err := handleSearch(ctx, req, input)
-	if err != nil {
-		t.Fatalf("handleSearch failed: %v", err)
-	}
-	if result == nil {
-		t.Fatal("result is nil")
-	}
+	t.Run("successful search", func(t *testing.T) {
+		input := SearchInput{Query: "test", Limit: 5}
+		result, output, err := handleSearch(ctx, req, input)
+		if err != nil {
+			t.Fatalf("handleSearch failed: %v", err)
+		}
+		if result == nil {
+			t.Fatal("result is nil")
+		}
+		if !strings.Contains(output.Results, "Test Section") {
+			t.Error("expected result to contain 'Test Section'")
+		}
+	})
 
-	// Test limit clamping - over 20 should become 20
-	input = SearchInput{Query: "test", Limit: 100}
-	result, _, err = handleSearch(ctx, req, input)
-	if err != nil {
-		t.Fatalf("handleSearch failed: %v", err)
-	}
+	t.Run("no results", func(t *testing.T) {
+		// Create new empty store
+		tmpDir, _ := os.MkdirTemp("", "empty-test-*")
+		defer os.RemoveAll(tmpDir)
+		emptySt, _ := store.New(filepath.Join(tmpDir, "empty.db"))
+		defer emptySt.Close()
 
-	_ = tmpDir // silence unused warning
+		mcpSearch = search.New(emptySt, emb, nil)
+
+		input := SearchInput{Query: "nonexistent query xyz", Limit: 5}
+		result, output, err := handleSearch(ctx, req, input)
+		if err != nil {
+			t.Fatalf("handleSearch failed: %v", err)
+		}
+		if result == nil {
+			t.Fatal("result is nil")
+		}
+		if output.Results != "No results found." {
+			t.Errorf("expected 'No results found.', got %q", output.Results)
+		}
+	})
 }
 
-func TestHandleSearch_NoResults(t *testing.T) {
-	cleanup, _ := setupTestMCPEnvironment(t)
-	defer cleanup()
+func TestFormatResults(t *testing.T) {
+	t.Run("vector results", func(t *testing.T) {
+		result := &search.Result{
+			Query: "test query",
+			Items: []search.Item{
+				{
+					FilePath:    "/path/to/file.md",
+					HeadingPath: "# Test",
+					Content:     "test content",
+					StartLine:   10,
+					Score:       0.85,
+				},
+			},
+			Reranked: false,
+		}
 
-	// Try to set up embedder
+		output := formatResults(result)
+
+		if !strings.Contains(output, "test query") {
+			t.Error("output should contain query")
+		}
+		if !strings.Contains(output, "85.0% similar") {
+			t.Error("output should contain similarity percentage")
+		}
+		if !strings.Contains(output, "/path/to/file.md:10") {
+			t.Error("output should contain file path and line")
+		}
+		if strings.Contains(output, "reranked") {
+			t.Error("output should not mention reranked")
+		}
+	})
+
+	t.Run("reranked results", func(t *testing.T) {
+		result := &search.Result{
+			Query: "test query",
+			Items: []search.Item{
+				{
+					FilePath:    "/path/to/file.md",
+					HeadingPath: "# Test",
+					Content:     "test content",
+					StartLine:   10,
+					Score:       1.5,
+				},
+			},
+			Reranked: true,
+		}
+
+		output := formatResults(result)
+
+		if !strings.Contains(output, "reranked") {
+			t.Error("output should mention reranked")
+		}
+		if !strings.Contains(output, "relevance: 1.50") {
+			t.Error("output should contain relevance score")
+		}
+	})
+}
+
+// Helper functions for tests
+
+func findONNXLib(t *testing.T) string {
+	t.Helper()
+	paths := []string{
+		"/opt/homebrew/lib/libonnxruntime.dylib",
+		"/usr/local/lib/libonnxruntime.dylib",
+		"/usr/lib/libonnxruntime.so",
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func findModelPath(t *testing.T) string {
+	t.Helper()
 	cwd, _ := os.Getwd()
-	modelPath := filepath.Join(cwd, "../assets/models/embed.onnx")
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		modelPath = filepath.Join(cwd, "assets/models/embed.onnx")
+	paths := []string{
+		filepath.Join(cwd, "../assets/models/embed.onnx"),
+		filepath.Join(cwd, "assets/models/embed.onnx"),
 	}
-
-	onnxLibPath := "/opt/homebrew/lib/libonnxruntime.dylib"
-	if _, err := os.Stat(onnxLibPath); os.IsNotExist(err) {
-		onnxLibPath = "/usr/local/lib/libonnxruntime.dylib"
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
 	}
-
-	emb, err := embedder.New(modelPath, onnxLibPath)
-	if err != nil {
-		t.Skip("ONNX model not available, skipping search test")
-	}
-	mcpSearch = search.New(mcpStore, emb, nil)
-
-	ctx := context.Background()
-	req := &mcp.CallToolRequest{}
-	input := SearchInput{Query: "test query", Limit: 5}
-
-	// Empty database - should return "No results found"
-	result, output, err := handleSearch(ctx, req, input)
-	if err != nil {
-		t.Fatalf("handleSearch failed: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("result is nil")
-	}
-
-	if output.Results != "No results found." {
-		t.Errorf("expected 'No results found.', got %q", output.Results)
-	}
+	return ""
 }
