@@ -402,107 +402,59 @@ func TestSearch_RerankFlag(t *testing.T) {
 	})
 }
 
-// searchTestEnv holds test resources for search tests
-type searchTestEnv struct {
-	tmpDir string
-	st     *store.Store
-	emb    *embedder.Embedder
-	rr     *reranker.Reranker
-}
-
-func setupSearchTestEnv(t *testing.T, withReranker bool) *searchTestEnv {
-	t.Helper()
-
+func TestSearch_WithReranker(t *testing.T) {
 	modelPath := findModelPath()
+	rerankerPath := findRerankerPath()
 	onnxLib := findONNXLib()
-	if modelPath == "" || onnxLib == "" {
-		t.Skip("ONNX model or library not available")
-	}
-
-	var rerankerPath string
-	if withReranker {
-		rerankerPath = findRerankerPath()
-		if rerankerPath == "" {
-			t.Skip("Reranker model not available")
-		}
+	if modelPath == "" || rerankerPath == "" || onnxLib == "" {
+		t.Skip("ONNX models or library not available")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "search-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
+	defer os.RemoveAll(tmpDir)
 
 	st, err := store.New(filepath.Join(tmpDir, "test.db"))
 	if err != nil {
-		os.RemoveAll(tmpDir)
 		t.Fatalf("failed to create store: %v", err)
 	}
+	defer st.Close()
 
 	emb, err := embedder.New(modelPath, onnxLib)
 	if err != nil {
-		st.Close()
-		os.RemoveAll(tmpDir)
 		t.Skipf("failed to create embedder: %v", err)
 	}
+	defer emb.Close()
 
-	env := &searchTestEnv{tmpDir: tmpDir, st: st, emb: emb}
-
-	if withReranker {
-		rr, err := reranker.New(rerankerPath, onnxLib)
-		if err != nil {
-			env.cleanup()
-			t.Skipf("failed to create reranker: %v", err)
-		}
-		env.rr = rr
+	rr, err := reranker.New(rerankerPath, onnxLib)
+	if err != nil {
+		t.Skipf("failed to create reranker: %v", err)
 	}
+	defer rr.Close()
 
-	return env
-}
+	ctx := context.Background()
 
-func (e *searchTestEnv) cleanup() {
-	if e.rr != nil {
-		e.rr.Close()
+	// Insert test chunks
+	docID, _ := st.InsertDocument(ctx, "/test.md", "hash", "Test")
+	contents := []string{
+		"How to install the software on Windows",
+		"Configuration options for advanced users",
+		"Troubleshooting installation problems",
 	}
-	if e.emb != nil {
-		e.emb.Close()
-	}
-	if e.st != nil {
-		e.st.Close()
-	}
-	if e.tmpDir != "" {
-		os.RemoveAll(e.tmpDir)
-	}
-}
-
-func (e *searchTestEnv) insertTestChunks(ctx context.Context, t *testing.T, contents []string) {
-	t.Helper()
-
-	docID, _ := e.st.InsertDocument(ctx, "/test.md", "hash", "Test")
 	for i, content := range contents {
-		embeddings, _ := e.emb.Embed([]string{content})
+		embeddings, _ := emb.Embed([]string{content})
 		chunk := store.Chunk{
 			HeadingPath:  "# Section",
 			HeadingLevel: 1,
 			Content:      content,
 			StartLine:    i * 10,
 		}
-		e.st.InsertChunk(ctx, docID, chunk, embeddings[0])
+		st.InsertChunk(ctx, docID, chunk, embeddings[0])
 	}
-}
 
-func TestSearch_WithReranker(t *testing.T) {
-	env := setupSearchTestEnv(t, true)
-	defer env.cleanup()
-
-	ctx := context.Background()
-	contents := []string{
-		"How to install the software on Windows",
-		"Configuration options for advanced users",
-		"Troubleshooting installation problems",
-	}
-	env.insertTestChunks(ctx, t, contents)
-
-	svc := New(env.st, env.emb, env.rr)
+	svc := New(st, emb, rr)
 
 	if !svc.HasReranker() {
 		t.Error("HasReranker should return true")
