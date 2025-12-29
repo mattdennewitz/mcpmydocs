@@ -18,8 +18,8 @@ import (
 
 // Global instances for MCP server handlers
 var (
-	mcpStore   *store.Store
-	mcpSearch  *search.Service
+	mcpStore  *store.Store
+	mcpSearch *search.Service
 )
 
 // NewRunCmd creates the run command.

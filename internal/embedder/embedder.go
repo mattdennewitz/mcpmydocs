@@ -278,7 +278,7 @@ func tokenizeText(text string) []string {
 func isCJK(r rune) bool {
 	return unicode.Is(unicode.Han, r) ||
 		(r >= 0x3040 && r <= 0x30ff) || // Hiragana and Katakana
-		(r >= 0xac00 && r <= 0xd7af)    // Hangul
+		(r >= 0xac00 && r <= 0xd7af) // Hangul
 }
 
 // wordPieceTokenize applies WordPiece algorithm to a single word.

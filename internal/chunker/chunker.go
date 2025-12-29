@@ -59,7 +59,7 @@ func (c *Chunker) ChunkFile(source []byte) ([]Chunk, error) {
 				extractText(heading, source, &headingText)
 
 				// Calculate StartLine based on the heading text position
-				// This ensures the metadata points to the heading itself, 
+				// This ensures the metadata points to the heading itself,
 				// not the preceding whitespace/gap included in the chunk content.
 				textStart := lastEnd
 				if heading.Lines().Len() > 0 {
@@ -81,7 +81,7 @@ func (c *Chunker) ChunkFile(source []byte) ([]Chunk, error) {
 
 		// Update lastEnd based on the node's lines (if any)
 		// This tracks the progression of the document
-		// We do this for both entering and exiting to be safe, 
+		// We do this for both entering and exiting to be safe,
 		// though blocks usually define lines on entry.
 		if n.Type() == ast.TypeBlock {
 			lines := n.Lines()
@@ -104,13 +104,13 @@ func (c *Chunker) ChunkFile(source []byte) ([]Chunk, error) {
 		if content == "" {
 			return nil, nil
 		}
-		return []Chunk{{ 
-			HeadingPath:  "(root)",
-			HeadingLevel: 0,
-			Content:      content,
-			StartLine:    1,
-		}},
-		nil
+		return []Chunk{{
+				HeadingPath:  "(root)",
+				HeadingLevel: 0,
+				Content:      content,
+				StartLine:    1,
+			}},
+			nil
 	}
 
 	var chunks []Chunk
@@ -149,9 +149,15 @@ func (c *Chunker) ChunkFile(source []byte) ([]Chunk, error) {
 		}
 
 		// Ensure we don't go out of bounds (though lastEnd logic makes this robust)
-		if startByte < 0 { startByte = 0 }
-		if endByte < startByte { endByte = startByte }
-		if endByte > len(source) { endByte = len(source) }
+		if startByte < 0 {
+			startByte = 0
+		}
+		if endByte < startByte {
+			endByte = startByte
+		}
+		if endByte > len(source) {
+			endByte = len(source)
+		}
 
 		content := strings.TrimSpace(string(source[startByte:endByte]))
 

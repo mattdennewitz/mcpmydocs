@@ -320,4 +320,3 @@ func TestResolveRerankerModelPath_NotFound(t *testing.T) {
 		t.Errorf("expected empty string when reranker not found, got %s", result)
 	}
 }
-

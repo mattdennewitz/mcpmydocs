@@ -272,7 +272,7 @@ func TestSearch(t *testing.T) {
 	embedding1 := make([]float32, EmbeddingDim)
 	embedding2 := make([]float32, EmbeddingDim)
 	for i := range embedding1 {
-		embedding1[i] = 1.0 / float32(EmbeddingDim) // Normalized vector pointing in one direction
+		embedding1[i] = 1.0 / float32(EmbeddingDim)  // Normalized vector pointing in one direction
 		embedding2[i] = -1.0 / float32(EmbeddingDim) // Opposite direction
 	}
 

@@ -45,7 +45,7 @@ func ResolveONNXLibraryPath(userProvidedPath string) (string, error) {
 		if _, err := os.Stat(sidecarPath); err == nil {
 			return sidecarPath, nil
 		}
-		
+
 		// Also check root of executable
 		rootPath := filepath.Join(exeDir, libName)
 		if _, err := os.Stat(rootPath); err == nil {

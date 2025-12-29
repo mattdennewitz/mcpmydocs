@@ -9,43 +9,43 @@ import (
 
 func TestL2Normalize(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    []float32
+		name      string
+		input     []float32
 		checkNorm bool // if true, verify the result has unit norm
 	}{
 		{
-			name:     "zero vector",
-			input:    []float32{0, 0, 0},
+			name:      "zero vector",
+			input:     []float32{0, 0, 0},
 			checkNorm: false, // zero vector stays zero
 		},
 		{
-			name:     "unit vector",
-			input:    []float32{1, 0, 0},
+			name:      "unit vector",
+			input:     []float32{1, 0, 0},
 			checkNorm: true,
 		},
 		{
-			name:     "simple vector",
-			input:    []float32{3, 4, 0},
+			name:      "simple vector",
+			input:     []float32{3, 4, 0},
 			checkNorm: true,
 		},
 		{
-			name:     "all ones",
-			input:    []float32{1, 1, 1, 1},
+			name:      "all ones",
+			input:     []float32{1, 1, 1, 1},
 			checkNorm: true,
 		},
 		{
-			name:     "negative values",
-			input:    []float32{-1, 2, -3},
+			name:      "negative values",
+			input:     []float32{-1, 2, -3},
 			checkNorm: true,
 		},
 		{
-			name:     "single element",
-			input:    []float32{5},
+			name:      "single element",
+			input:     []float32{5},
 			checkNorm: true,
 		},
 		{
-			name:     "empty vector",
-			input:    []float32{},
+			name:      "empty vector",
+			input:     []float32{},
 			checkNorm: false,
 		},
 	}
@@ -55,7 +55,7 @@ func TestL2Normalize(t *testing.T) {
 			// Make a copy to avoid modifying the test case input
 			result := make([]float32, len(tt.input))
 			copy(result, tt.input)
-			
+
 			l2Normalize(result)
 
 			// Check length preserved
@@ -186,7 +186,7 @@ func TestTokenize_LongText(t *testing.T) {
 
 	// Create text that would exceed MaxSeqLen when tokenized
 	longText := ""
-	for i := 0; i < MaxSeqLen * 2; i++ {
+	for i := 0; i < MaxSeqLen*2; i++ {
 		longText += "word "
 	}
 

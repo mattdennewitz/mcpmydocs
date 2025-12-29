@@ -152,7 +152,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return fmt.Errorf("failed to embed chunks for %s: %w", path, err)
 			}
-			
+
 			// Convert chunks to store.Chunk
 			storeChunks := make([]store.Chunk, len(chunks))
 			for i, c := range chunks {

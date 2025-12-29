@@ -220,13 +220,13 @@ func floatSliceToArrayString(v []float32) string {
 
 // SearchResult represents a search result with similarity score.
 type SearchResult struct {
-	ChunkID      int
-	FilePath     string
-	Title        string
-	HeadingPath  string
-	Content      string
-	StartLine    int
-	Distance     float64
+	ChunkID     int
+	FilePath    string
+	Title       string
+	HeadingPath string
+	Content     string
+	StartLine   int
+	Distance    float64
 }
 
 // Search finds chunks similar to the query embedding.
