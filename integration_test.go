@@ -72,17 +72,107 @@ func skipIfNoModel(t *testing.T) (modelPath, onnxLibPath string) {
 	return modelPath, onnxLibPath
 }
 
-func TestIntegration_FullPipeline(t *testing.T) {
-	modelPath, onnxLibPath := skipIfNoModel(t)
+// testEnv holds common test resources
+type testEnv struct {
+	tmpDir string
+	st     *store.Store
+	emb    *embedder.Embedder
+	ch     *chunker.Chunker
+}
 
-	// Create temp directory for database
+func setupTestEnv(t *testing.T, modelPath, onnxLibPath string) *testEnv {
+	t.Helper()
+
 	tmpDir, err := os.MkdirTemp("", "mcpmydocs-integration-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
 
-	// Create temp markdown file
+	st, err := store.New(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	emb, err := embedder.New(modelPath, onnxLibPath)
+	if err != nil {
+		st.Close()
+		os.RemoveAll(tmpDir)
+		t.Fatalf("failed to create embedder: %v", err)
+	}
+
+	return &testEnv{
+		tmpDir: tmpDir,
+		st:     st,
+		emb:    emb,
+		ch:     chunker.New(),
+	}
+}
+
+func (e *testEnv) cleanup() {
+	if e.st != nil {
+		e.st.Close()
+	}
+	if e.tmpDir != "" {
+		os.RemoveAll(e.tmpDir)
+	}
+}
+
+func indexContent(ctx context.Context, t *testing.T, env *testEnv, path, hash, title string, content []byte) int {
+	t.Helper()
+
+	chunks, err := env.ch.ChunkFile(content)
+	if err != nil {
+		t.Fatalf("failed to chunk file: %v", err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("expected chunks, got none")
+	}
+	t.Logf("Created %d chunks", len(chunks))
+
+	docID, err := env.st.InsertDocument(ctx, path, hash, title)
+	if err != nil {
+		t.Fatalf("failed to insert document: %v", err)
+	}
+
+	embedAndInsert(ctx, t, env, docID, chunks)
+	return docID
+}
+
+func embedAndInsert(ctx context.Context, t *testing.T, env *testEnv, docID int, chunks []chunker.Chunk) {
+	t.Helper()
+
+	texts := make([]string, len(chunks))
+	for i, c := range chunks {
+		texts[i] = c.Content
+	}
+
+	embeddings, err := env.emb.Embed(texts)
+	if err != nil {
+		t.Fatalf("failed to embed chunks: %v", err)
+	}
+	if len(embeddings) != len(chunks) {
+		t.Fatalf("expected %d embeddings, got %d", len(chunks), len(embeddings))
+	}
+
+	for i, c := range chunks {
+		chunk := store.Chunk{
+			HeadingPath:  c.HeadingPath,
+			HeadingLevel: c.HeadingLevel,
+			Content:      c.Content,
+			StartLine:    c.StartLine,
+		}
+		if err := env.st.InsertChunk(ctx, docID, chunk, embeddings[i]); err != nil {
+			t.Fatalf("failed to insert chunk %d: %v", i, err)
+		}
+	}
+}
+
+func TestIntegration_FullPipeline(t *testing.T) {
+	modelPath, onnxLibPath := skipIfNoModel(t)
+	env := setupTestEnv(t, modelPath, onnxLibPath)
+	defer env.cleanup()
+
 	mdContent := `# Test Document
 
 This is a test document for integration testing.
@@ -107,96 +197,33 @@ Here's how to use the tool:
 For power users, there are additional options available.
 `
 
-	mdPath := filepath.Join(tmpDir, "test.md")
+	mdPath := filepath.Join(env.tmpDir, "test.md")
 	if err := os.WriteFile(mdPath, []byte(mdContent), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
 	ctx := context.Background()
-
-	// Initialize components
-	dbPath := filepath.Join(tmpDir, "test.db")
-	st, err := store.New(dbPath)
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer st.Close()
-
-	emb, err := embedder.New(modelPath, onnxLibPath)
-	if err != nil {
-		t.Fatalf("failed to create embedder: %v", err)
-	}
-
-	ch := chunker.New()
-
-	// Read and chunk the file
 	content, err := os.ReadFile(mdPath)
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
 
-	chunks, err := ch.ChunkFile(content)
-	if err != nil {
-		t.Fatalf("failed to chunk file: %v", err)
-	}
+	indexContent(ctx, t, env, mdPath, "testhash", "Test Document", content)
 
-	if len(chunks) == 0 {
-		t.Fatal("expected chunks, got none")
-	}
-
-	t.Logf("Created %d chunks", len(chunks))
-
-	// Insert document
-	docID, err := st.InsertDocument(ctx, mdPath, "testhash", "Test Document")
-	if err != nil {
-		t.Fatalf("failed to insert document: %v", err)
-	}
-
-	// Embed and insert chunks
-	texts := make([]string, len(chunks))
-	for i, c := range chunks {
-		texts[i] = c.Content
-	}
-
-	embeddings, err := emb.Embed(texts)
-	if err != nil {
-		t.Fatalf("failed to embed chunks: %v", err)
-	}
-
-	if len(embeddings) != len(chunks) {
-		t.Fatalf("expected %d embeddings, got %d", len(chunks), len(embeddings))
-	}
-
-	for i, c := range chunks {
-		chunk := store.Chunk{
-			HeadingPath:  c.HeadingPath,
-			HeadingLevel: c.HeadingLevel,
-			Content:      c.Content,
-			StartLine:    c.StartLine,
-		}
-		if err := st.InsertChunk(ctx, docID, chunk, embeddings[i]); err != nil {
-			t.Fatalf("failed to insert chunk %d: %v", i, err)
-		}
-	}
-
-	// Test search
-	queryEmbeddings, err := emb.Embed([]string{"how to install"})
+	queryEmbeddings, err := env.emb.Embed([]string{"how to install"})
 	if err != nil {
 		t.Fatalf("failed to embed query: %v", err)
 	}
 
-	results, err := st.Search(ctx, queryEmbeddings[0], 5)
+	results, err := env.st.Search(ctx, queryEmbeddings[0], 5)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
-
 	if len(results) == 0 {
 		t.Fatal("expected search results, got none")
 	}
 
 	t.Logf("Found %d search results", len(results))
-
-	// The installation section should be near the top
 	foundInstallation := false
 	for i, r := range results {
 		t.Logf("  Result %d: %s (distance: %.4f)", i+1, r.HeadingPath, r.Distance)
@@ -204,7 +231,6 @@ For power users, there are additional options available.
 			foundInstallation = true
 		}
 	}
-
 	if !foundInstallation {
 		t.Error("expected 'Installation' section in search results")
 	}
@@ -404,31 +430,12 @@ func TestIntegration_MultipleDocuments(t *testing.T) {
 
 func TestIntegration_SearchRanking(t *testing.T) {
 	modelPath, onnxLibPath := skipIfNoModel(t)
-
-	tmpDir, err := os.MkdirTemp("", "mcpmydocs-integration-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	env := setupTestEnv(t, modelPath, onnxLibPath)
+	defer env.cleanup()
 
 	ctx := context.Background()
+	docID, _ := env.st.InsertDocument(ctx, "/test.md", "hash", "Test")
 
-	dbPath := filepath.Join(tmpDir, "test.db")
-	st, err := store.New(dbPath)
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer st.Close()
-
-	emb, err := embedder.New(modelPath, onnxLibPath)
-	if err != nil {
-		t.Fatalf("failed to create embedder: %v", err)
-	}
-
-	// Insert document
-	docID, _ := st.InsertDocument(ctx, "/test.md", "hash", "Test")
-
-	// Create chunks with different content
 	contents := []string{
 		"Installing the software requires npm or yarn package manager",
 		"The weather today is sunny and warm",
@@ -436,7 +443,27 @@ func TestIntegration_SearchRanking(t *testing.T) {
 		"Step by step installation guide for beginners",
 	}
 
-	embeddings, err := emb.Embed(contents)
+	insertRawContents(ctx, t, env, docID, contents)
+
+	queryEmb, _ := env.emb.Embed([]string{"how do I install"})
+	results, err := env.st.Search(ctx, queryEmb[0], 4)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	verifyResultsSortedByDistance(t, results)
+	verifyContentInResults(t, results)
+
+	t.Logf("Search results ranking:")
+	for i, r := range results {
+		t.Logf("  %d. (distance: %.4f) %s...", i+1, r.Distance, r.Content[:min(50, len(r.Content))])
+	}
+}
+
+func insertRawContents(ctx context.Context, t *testing.T, env *testEnv, docID int, contents []string) {
+	t.Helper()
+
+	embeddings, err := env.emb.Embed(contents)
 	if err != nil {
 		t.Fatalf("failed to embed: %v", err)
 	}
@@ -448,28 +475,22 @@ func TestIntegration_SearchRanking(t *testing.T) {
 			Content:      content,
 			StartLine:    i * 5,
 		}
-		st.InsertChunk(ctx, docID, chunk, embeddings[i])
+		env.st.InsertChunk(ctx, docID, chunk, embeddings[i])
 	}
+}
 
-	// Search for installation-related content
-	queryEmb, _ := emb.Embed([]string{"how do I install"})
-	results, err := st.Search(ctx, queryEmb[0], 4)
-	if err != nil {
-		t.Fatalf("search failed: %v", err)
-	}
-
-	// Verify search returns all results in ranked order (by distance)
-	// Note: Semantic ranking quality depends on tokenizer implementation.
-	// Our simplified character-based tokenizer doesn't capture true semantics,
-	// so we only verify results are returned and sorted by distance.
+func verifyResultsSortedByDistance(t *testing.T, results []store.SearchResult) {
+	t.Helper()
 	for i := 1; i < len(results); i++ {
 		if results[i].Distance < results[i-1].Distance {
 			t.Errorf("results not sorted by distance: result %d (%.4f) < result %d (%.4f)",
 				i, results[i].Distance, i-1, results[i-1].Distance)
 		}
 	}
+}
 
-	// Verify all expected content is in results
+func verifyContentInResults(t *testing.T, results []store.SearchResult) {
+	t.Helper()
 	foundInstall := false
 	foundWeather := false
 	for _, r := range results {
@@ -480,17 +501,11 @@ func TestIntegration_SearchRanking(t *testing.T) {
 			foundWeather = true
 		}
 	}
-
 	if !foundInstall {
 		t.Error("expected installation content in results")
 	}
 	if !foundWeather {
 		t.Error("expected weather content in results")
-	}
-
-	t.Logf("Search results ranking:")
-	for i, r := range results {
-		t.Logf("  %d. (distance: %.4f) %s...", i+1, r.Distance, r.Content[:min(50, len(r.Content))])
 	}
 }
 

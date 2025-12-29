@@ -34,142 +34,164 @@ type stackItem struct {
 	text  string
 }
 
+type headingInfo struct {
+	level     int
+	text      string
+	startByte int
+	startLine int
+}
+
 // ChunkFile parses markdown and splits by heading sections.
 func (c *Chunker) ChunkFile(source []byte) ([]Chunk, error) {
 	reader := text.NewReader(source)
 	doc := c.md.Parser().Parse(reader)
 
-	// Collect all headings with their positions
-	type headingInfo struct {
-		level     int
-		text      string
-		startByte int
-		startLine int
+	headings := collectHeadings(doc, source)
+
+	if len(headings) == 0 {
+		return createSingleChunk(source), nil
 	}
 
+	return buildChunks(headings, source), nil
+}
+
+func collectHeadings(doc ast.Node, source []byte) []headingInfo {
 	var headings []headingInfo
 	lastEnd := 0
 
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		// Only process on entry for capturing start positions
 		if entering {
 			if heading, ok := n.(*ast.Heading); ok {
-				// Extract heading text
-				var headingText bytes.Buffer
-				extractText(heading, source, &headingText)
-
-				// Calculate StartLine based on the heading text position
-				// This ensures the metadata points to the heading itself,
-				// not the preceding whitespace/gap included in the chunk content.
-				textStart := lastEnd
-				if heading.Lines().Len() > 0 {
-					textStart = heading.Lines().At(0).Start
-				}
-				startLine := countLines(source[:textStart]) + 1
-
-				// Start byte is the end of the previous content (including whitespace/markers)
-				startByte := lastEnd
-
-				headings = append(headings, headingInfo{
-					level:     heading.Level,
-					text:      headingText.String(),
-					startByte: startByte,
-					startLine: startLine,
-				})
+				headings = append(headings, extractHeadingInfo(heading, source, lastEnd))
 			}
 		}
-
-		// Update lastEnd based on the node's lines (if any)
-		// This tracks the progression of the document
-		// We do this for both entering and exiting to be safe,
-		// though blocks usually define lines on entry.
-		if n.Type() == ast.TypeBlock {
-			lines := n.Lines()
-			if lines != nil {
-				for i := 0; i < lines.Len(); i++ {
-					seg := lines.At(i)
-					if seg.Stop > lastEnd {
-						lastEnd = seg.Stop
-					}
-				}
-			}
-		}
-
+		lastEnd = updateLastEnd(n, lastEnd)
 		return ast.WalkContinue, nil
 	})
 
-	// If no headings, treat whole file as one chunk
-	if len(headings) == 0 {
-		content := strings.TrimSpace(string(source))
-		if content == "" {
-			return nil, nil
-		}
-		return []Chunk{{
-				HeadingPath:  "(root)",
-				HeadingLevel: 0,
-				Content:      content,
-				StartLine:    1,
-			}},
-			nil
+	return headings
+}
+
+func extractHeadingInfo(heading *ast.Heading, source []byte, lastEnd int) headingInfo {
+	var headingText bytes.Buffer
+	extractText(heading, source, &headingText)
+
+	textStart := lastEnd
+	if heading.Lines().Len() > 0 {
+		textStart = heading.Lines().At(0).Start
 	}
 
+	return headingInfo{
+		level:     heading.Level,
+		text:      headingText.String(),
+		startByte: lastEnd,
+		startLine: countLines(source[:textStart]) + 1,
+	}
+}
+
+func updateLastEnd(n ast.Node, lastEnd int) int {
+	if n.Type() != ast.TypeBlock {
+		return lastEnd
+	}
+
+	lines := n.Lines()
+	if lines == nil {
+		return lastEnd
+	}
+
+	for i := 0; i < lines.Len(); i++ {
+		if seg := lines.At(i); seg.Stop > lastEnd {
+			lastEnd = seg.Stop
+		}
+	}
+	return lastEnd
+}
+
+func createSingleChunk(source []byte) []Chunk {
+	content := strings.TrimSpace(string(source))
+	if content == "" {
+		return nil
+	}
+	return []Chunk{{
+		HeadingPath:  "(root)",
+		HeadingLevel: 0,
+		Content:      content,
+		StartLine:    1,
+	}}
+}
+
+func buildChunks(headings []headingInfo, source []byte) []Chunk {
 	var chunks []Chunk
 
-	// 1. Preamble
-	if headings[0].startByte > 0 {
-		preambleContent := strings.TrimSpace(string(source[:headings[0].startByte]))
-		if preambleContent != "" {
-			chunks = append(chunks, Chunk{
-				HeadingPath:  "(root)",
-				HeadingLevel: 0,
-				Content:      preambleContent,
-				StartLine:    1,
-			})
-		}
+	if preamble := createPreamble(headings, source); preamble != nil {
+		chunks = append(chunks, *preamble)
 	}
 
-	// 2. Build chunks
 	var headingStack []stackItem
-
 	for i, h := range headings {
-		// Update heading stack
-		for len(headingStack) > 0 && headingStack[len(headingStack)-1].level >= h.level {
-			headingStack = headingStack[:len(headingStack)-1]
-		}
-		headingStack = append(headingStack, stackItem{h.level, h.text})
-
-		headingPath := buildHeadingPath(headingStack)
-
-		startByte := h.startByte
-		var endByte int
-		if i+1 < len(headings) {
-			endByte = headings[i+1].startByte
-		} else {
-			endByte = len(source)
-		}
-
-		// Ensure we don't go out of bounds (though lastEnd logic makes this robust)
-		if startByte < 0 {
-			startByte = 0
-		}
-		if endByte < startByte {
-			endByte = startByte
-		}
-		if endByte > len(source) {
-			endByte = len(source)
-		}
-
-		content := strings.TrimSpace(string(source[startByte:endByte]))
-
-		chunks = append(chunks, Chunk{
-			HeadingPath:  headingPath,
-			HeadingLevel: h.level,
-			Content:      content,
-			StartLine:    h.startLine,
-		})
+		headingStack = updateHeadingStack(headingStack, h)
+		chunk := createChunkFromHeading(headings, i, source, headingStack)
+		chunks = append(chunks, chunk)
 	}
 
-	return chunks, nil
+	return chunks
+}
+
+func createPreamble(headings []headingInfo, source []byte) *Chunk {
+	if headings[0].startByte <= 0 {
+		return nil
+	}
+	content := strings.TrimSpace(string(source[:headings[0].startByte]))
+	if content == "" {
+		return nil
+	}
+	return &Chunk{
+		HeadingPath:  "(root)",
+		HeadingLevel: 0,
+		Content:      content,
+		StartLine:    1,
+	}
+}
+
+func updateHeadingStack(stack []stackItem, h headingInfo) []stackItem {
+	for len(stack) > 0 && stack[len(stack)-1].level >= h.level {
+		stack = stack[:len(stack)-1]
+	}
+	return append(stack, stackItem{h.level, h.text})
+}
+
+func createChunkFromHeading(headings []headingInfo, idx int, source []byte, stack []stackItem) Chunk {
+	h := headings[idx]
+	startByte, endByte := getChunkBounds(headings, idx, len(source))
+	content := strings.TrimSpace(string(source[startByte:endByte]))
+
+	return Chunk{
+		HeadingPath:  buildHeadingPath(stack),
+		HeadingLevel: h.level,
+		Content:      content,
+		StartLine:    h.startLine,
+	}
+}
+
+func getChunkBounds(headings []headingInfo, idx, sourceLen int) (int, int) {
+	startByte := headings[idx].startByte
+	endByte := sourceLen
+
+	if idx+1 < len(headings) {
+		endByte = headings[idx+1].startByte
+	}
+
+	if startByte < 0 {
+		startByte = 0
+	}
+	if endByte < startByte {
+		endByte = startByte
+	}
+	if endByte > sourceLen {
+		endByte = sourceLen
+	}
+
+	return startByte, endByte
 }
 
 // extractText recursively extracts all text content from an AST node.
