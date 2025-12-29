@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mcpmydocs/internal/app"
-	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/search"
+	"github.com/mattdennewitz/mcpmydocs/internal/app"
+	"github.com/mattdennewitz/mcpmydocs/internal/logger"
+	"github.com/mattdennewitz/mcpmydocs/internal/search"
 )
 
 var (

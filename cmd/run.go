@@ -10,10 +10,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"mcpmydocs/internal/app"
-	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/search"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/app"
+	"github.com/mattdennewitz/mcpmydocs/internal/logger"
+	"github.com/mattdennewitz/mcpmydocs/internal/search"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 // Global instances for MCP server handlers
@@ -94,7 +94,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "mcpmydocs",
-		Version: "0.1.0",
+		Version: "0.3.0",
 	}, nil)
 
 	searchDesc := "Search indexed markdown documents using semantic similarity. Returns relevant chunks with file paths and similarity scores."

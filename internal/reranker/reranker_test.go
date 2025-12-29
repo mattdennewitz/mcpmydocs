@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 func TestSplitWords(t *testing.T) {

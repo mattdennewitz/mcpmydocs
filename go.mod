@@ -1,4 +1,4 @@
-module mcpmydocs
+module github.com/mattdennewitz/mcpmydocs
 
 go 1.24
 

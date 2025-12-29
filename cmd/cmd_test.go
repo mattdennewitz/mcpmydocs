@@ -9,9 +9,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"mcpmydocs/internal/embedder"
-	"mcpmydocs/internal/search"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/embedder"
+	"github.com/mattdennewitz/mcpmydocs/internal/search"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 func TestExtractTitle(t *testing.T) {

@@ -5,11 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"mcpmydocs/internal/embedder"
-	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/paths"
-	"mcpmydocs/internal/reranker"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/embedder"
+	"github.com/mattdennewitz/mcpmydocs/internal/logger"
+	"github.com/mattdennewitz/mcpmydocs/internal/paths"
+	"github.com/mattdennewitz/mcpmydocs/internal/reranker"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 // App holds the core components of the application.

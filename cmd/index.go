@@ -17,10 +17,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"mcpmydocs/internal/app"
-	"mcpmydocs/internal/chunker"
-	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/app"
+	"github.com/mattdennewitz/mcpmydocs/internal/chunker"
+	"github.com/mattdennewitz/mcpmydocs/internal/logger"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 // NewIndexCmd creates the index command.

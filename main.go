@@ -6,13 +6,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mcpmydocs/cmd"
-	"mcpmydocs/internal/logger"
+	"github.com/mattdennewitz/mcpmydocs/cmd"
+	"github.com/mattdennewitz/mcpmydocs/internal/logger"
 )
 
 var (
 	// Version is set during build via -ldflags
-	Version = "0.1.0"
+	Version = "0.3.0"
 
 	// verbose enables debug logging
 	verbose bool

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"mcpmydocs/internal/embedder"
-	"mcpmydocs/internal/reranker"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/embedder"
+	"github.com/mattdennewitz/mcpmydocs/internal/reranker"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 func TestClamp(t *testing.T) {

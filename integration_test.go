@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"mcpmydocs/internal/chunker"
-	"mcpmydocs/internal/embedder"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/chunker"
+	"github.com/mattdennewitz/mcpmydocs/internal/embedder"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 // EmbedderInterface allows mocking the embedder for tests

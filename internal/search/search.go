@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"mcpmydocs/internal/embedder"
-	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/reranker"
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/embedder"
+	"github.com/mattdennewitz/mcpmydocs/internal/logger"
+	"github.com/mattdennewitz/mcpmydocs/internal/reranker"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 // Limits for search parameters.

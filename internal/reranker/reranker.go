@@ -12,7 +12,7 @@ import (
 
 	ort "github.com/yalue/onnxruntime_go"
 
-	"mcpmydocs/internal/store"
+	"github.com/mattdennewitz/mcpmydocs/internal/store"
 )
 
 const (
