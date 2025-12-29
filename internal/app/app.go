@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"mcpmydocs/internal/embedder"
+	"mcpmydocs/internal/logger"
 	"mcpmydocs/internal/paths"
 	"mcpmydocs/internal/reranker"
 	"mcpmydocs/internal/store"
@@ -46,7 +47,7 @@ func New(cfg Config) (*App, error) {
 	if cfg.RerankerModelPath != "" {
 		rr, err = reranker.New(cfg.RerankerModelPath, cfg.OnnxLibraryPath)
 		if err != nil {
-			// Reranker is optional - log warning but continue
+			logger.Warn("reranker initialization failed, continuing without reranking", "error", err)
 			rr = nil
 		}
 	}

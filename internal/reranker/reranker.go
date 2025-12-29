@@ -19,11 +19,6 @@ const (
 	MaxSeqLen = 512 // Cross-encoder max sequence length
 )
 
-var (
-	ortOnce    sync.Once
-	ortInitErr error
-)
-
 // Reranker scores query-document pairs using a cross-encoder model.
 type Reranker struct {
 	modelPath string
@@ -37,16 +32,18 @@ type ScoredResult struct {
 	Score  float32 // higher = more relevant
 }
 
+var (
+	ortOnce sync.Once
+)
+
 // New creates a new Reranker.
 func New(modelPath, onnxLibPath string) (*Reranker, error) {
+	// Initialize ONNX environment if not already done (embedder may have initialized it)
 	ortOnce.Do(func() {
 		ort.SetSharedLibraryPath(onnxLibPath)
-		ortInitErr = ort.InitializeEnvironment()
+		// Ignore error - embedder may have already initialized
+		_ = ort.InitializeEnvironment()
 	})
-
-	if ortInitErr != nil {
-		return nil, fmt.Errorf("failed to init onnx environment: %w", ortInitErr)
-	}
 
 	// Load tokenizer vocabulary (same as embedder)
 	tokenizerPath := filepath.Join(filepath.Dir(modelPath), "tokenizer.json")
