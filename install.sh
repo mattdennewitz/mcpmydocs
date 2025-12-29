@@ -133,7 +133,7 @@ install_models() {
     else
         info "Downloading reranker model (~90MB)..."
         curl -sSL -o "$MODEL_DIR/rerank.onnx" \
-            "https://huggingface.co/BAAI/bge-reranker-base/resolve/main/onnx/model.onnx"
+            "https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2/resolve/main/onnx/model.onnx"
     fi
 
     success "Model files installed to $MODEL_DIR"

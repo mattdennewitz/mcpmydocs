@@ -4,7 +4,7 @@ BINARY_NAME=mcpmydocs
 DIST_DIR=dist
 MODELS_DIR=assets/models
 EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-RERANK_MODEL=BAAI/bge-reranker-base
+RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 
 .PHONY: all build clean download-models install-deps install-go-modules deps
 

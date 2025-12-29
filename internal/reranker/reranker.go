@@ -52,11 +52,11 @@ func New(modelPath, onnxLibPath string) (*Reranker, error) {
 		return nil, fmt.Errorf("failed to load tokenizer: %w", err)
 	}
 
-	// Create session for cross-encoder (BGE reranker uses only input_ids and attention_mask)
-	// Output is typically "logits" or similar - try common names
+	// Create session for cross-encoder
+	// ms-marco-MiniLM uses input_ids, attention_mask, and token_type_ids
 	session, err := ort.NewDynamicAdvancedSession(
 		modelPath,
-		[]string{"input_ids", "attention_mask"},
+		[]string{"input_ids", "attention_mask", "token_type_ids"},
 		[]string{"logits"},
 		nil,
 	)
@@ -113,7 +113,7 @@ func (r *Reranker) Rerank(query string, results []store.SearchResult) ([]ScoredR
 	seqLen := int64(MaxSeqLen)
 
 	// Tokenize all query-passage pairs
-	inputIDs, attentionMask := r.tokenizePairs(query, results)
+	inputIDs, attentionMask, tokenTypeIDs := r.tokenizePairs(query, results)
 
 	// Create input tensors
 	inputShape := ort.NewShape(batchSize, seqLen)
@@ -130,6 +130,12 @@ func (r *Reranker) Rerank(query string, results []store.SearchResult) ([]ScoredR
 	}
 	defer attentionMaskTensor.Destroy()
 
+	tokenTypeIDsTensor, err := ort.NewTensor(inputShape, tokenTypeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token_type_ids tensor: %w", err)
+	}
+	defer tokenTypeIDsTensor.Destroy()
+
 	// Create output tensor - cross-encoder outputs [batch_size, 1] logits
 	outputShape := ort.NewShape(batchSize, 1)
 	outputTensor, err := ort.NewEmptyTensor[float32](outputShape)
@@ -140,7 +146,7 @@ func (r *Reranker) Rerank(query string, results []store.SearchResult) ([]ScoredR
 
 	// Run inference
 	err = r.session.Run(
-		[]ort.ArbitraryTensor{inputIDsTensor, attentionMaskTensor},
+		[]ort.ArbitraryTensor{inputIDsTensor, attentionMaskTensor, tokenTypeIDsTensor},
 		[]ort.ArbitraryTensor{outputTensor},
 	)
 	if err != nil {
@@ -168,10 +174,12 @@ func (r *Reranker) Rerank(query string, results []store.SearchResult) ([]ScoredR
 
 // tokenizePairs tokenizes query-passage pairs for cross-encoder.
 // Format: [CLS] query [SEP] passage [SEP]
-func (r *Reranker) tokenizePairs(query string, results []store.SearchResult) ([]int64, []int64) {
+// Returns: input_ids, attention_mask, token_type_ids
+func (r *Reranker) tokenizePairs(query string, results []store.SearchResult) ([]int64, []int64, []int64) {
 	batchSize := len(results)
 	inputIDs := make([]int64, batchSize*MaxSeqLen)
 	attentionMask := make([]int64, batchSize*MaxSeqLen)
+	tokenTypeIDs := make([]int64, batchSize*MaxSeqLen)
 
 	const (
 		clsToken = 101
@@ -193,29 +201,32 @@ func (r *Reranker) tokenizePairs(query string, results []store.SearchResult) ([]
 		offset := b * MaxSeqLen
 		pos := 0
 
-		// [CLS]
+		// [CLS] - token_type 0 (query)
 		inputIDs[offset+pos] = clsToken
 		attentionMask[offset+pos] = 1
+		tokenTypeIDs[offset+pos] = 0
 		pos++
 
-		// Query tokens
+		// Query tokens - token_type 0
 		for _, tokenID := range queryTokens {
 			if pos >= MaxSeqLen-2 {
 				break
 			}
 			inputIDs[offset+pos] = tokenID
 			attentionMask[offset+pos] = 1
+			tokenTypeIDs[offset+pos] = 0
 			pos++
 		}
 
-		// [SEP] after query
+		// [SEP] after query - token_type 0
 		if pos < MaxSeqLen-1 {
 			inputIDs[offset+pos] = sepToken
 			attentionMask[offset+pos] = 1
+			tokenTypeIDs[offset+pos] = 0
 			pos++
 		}
 
-		// Passage tokens
+		// Passage tokens - token_type 1
 		passageTokens := r.tokenizeText(strings.ToLower(result.Content))
 		for _, tokenID := range passageTokens {
 			if pos >= MaxSeqLen-1 {
@@ -223,24 +234,27 @@ func (r *Reranker) tokenizePairs(query string, results []store.SearchResult) ([]
 			}
 			inputIDs[offset+pos] = tokenID
 			attentionMask[offset+pos] = 1
+			tokenTypeIDs[offset+pos] = 1
 			pos++
 		}
 
-		// [SEP] after passage
+		// [SEP] after passage - token_type 1
 		if pos < MaxSeqLen {
 			inputIDs[offset+pos] = sepToken
 			attentionMask[offset+pos] = 1
+			tokenTypeIDs[offset+pos] = 1
 			pos++
 		}
 
-		// Pad remaining
+		// Pad remaining - token_type 0, attention 0
 		for ; pos < MaxSeqLen; pos++ {
 			inputIDs[offset+pos] = padToken
 			attentionMask[offset+pos] = 0
+			tokenTypeIDs[offset+pos] = 0
 		}
 	}
 
-	return inputIDs, attentionMask
+	return inputIDs, attentionMask, tokenTypeIDs
 }
 
 // tokenizeText converts text to token IDs using WordPiece tokenization.
