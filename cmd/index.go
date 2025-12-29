@@ -112,7 +112,9 @@ type indexStats struct {
 	skipped   atomic.Int32
 }
 
-func processFiles(absDir string, files []string, st *store.Store, emb interface{ Embed([]string) ([][]float32, error) }, ch *chunker.Chunker) *indexStats {
+func processFiles(absDir string, files []string, st *store.Store, emb interface {
+	Embed([]string) ([][]float32, error)
+}, ch *chunker.Chunker) *indexStats {
 	stats := &indexStats{}
 	var printMu sync.Mutex
 	totalFiles := len(files)
@@ -131,7 +133,9 @@ func processFiles(absDir string, files []string, st *store.Store, emb interface{
 	return stats
 }
 
-func processFile(ctx context.Context, path, absDir string, totalFiles int, st *store.Store, emb interface{ Embed([]string) ([][]float32, error) }, ch *chunker.Chunker, stats *indexStats, printMu *sync.Mutex) error {
+func processFile(ctx context.Context, path, absDir string, totalFiles int, st *store.Store, emb interface {
+	Embed([]string) ([][]float32, error)
+}, ch *chunker.Chunker, stats *indexStats, printMu *sync.Mutex) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		logger.Warn("skipping unreadable file", "path", path, "error", err)
@@ -177,7 +181,9 @@ func processFile(ctx context.Context, path, absDir string, totalFiles int, st *s
 	return nil
 }
 
-func embedAndInsertChunks(ctx context.Context, docID int, chunks []chunker.Chunk, st *store.Store, emb interface{ Embed([]string) ([][]float32, error) }, path string) error {
+func embedAndInsertChunks(ctx context.Context, docID int, chunks []chunker.Chunk, st *store.Store, emb interface {
+	Embed([]string) ([][]float32, error)
+}, path string) error {
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
 		texts[i] = c.Content
