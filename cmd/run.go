@@ -6,33 +6,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
 	"mcpmydocs/internal/app"
-	"mcpmydocs/internal/embedder"
 	"mcpmydocs/internal/logger"
-	"mcpmydocs/internal/reranker"
+	"mcpmydocs/internal/search"
 	"mcpmydocs/internal/store"
 )
 
-// Search limit constants
-const (
-	DefaultSearchLimit    = 5
-	MaxSearchLimit        = 20
-	MinSearchLimit        = 1
-	DefaultCandidates     = 50
-	MaxCandidates         = 100
-	MinCandidates         = 1
-)
-
-// Global instances for the MCP server handlers
+// Global instances for MCP server handlers
 var (
-	mcpStore    *store.Store
-	mcpEmbedder *embedder.Embedder
-	mcpReranker *reranker.Reranker // nil if reranker not available
+	mcpStore   *store.Store
+	mcpSearch  *search.Service
 )
 
 // NewRunCmd creates the run command.
@@ -66,13 +53,11 @@ type ListDocumentsOutput struct {
 }
 
 func runMCPServer(cmd *cobra.Command, args []string) error {
-	// Initialize app
 	cfg, err := app.DefaultPaths(OnnxLibraryPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve paths: %w", err)
 	}
 
-	// Check if database exists
 	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
 		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", cfg.DBPath)
 	}
@@ -82,7 +67,6 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize application: %w", err)
 	}
 
-	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -98,26 +82,23 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	defer application.Close()
 
-	// Assign globals for handlers
+	// Initialize search service
 	mcpStore = application.Store
-	mcpEmbedder = application.Embedder
-	mcpReranker = application.Reranker
+	mcpSearch = search.New(application.Store, application.Embedder, application.Reranker)
 
-	if mcpReranker != nil {
+	if mcpSearch.HasReranker() {
 		logger.Info("reranker enabled")
 	} else {
 		logger.Info("reranker not available, using vector-only search")
 	}
 
-	// Create MCP server
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "mcpmydocs",
 		Version: "0.1.0",
 	}, nil)
 
-	// Register search tool
 	searchDesc := "Search indexed markdown documents using semantic similarity. Returns relevant chunks with file paths and similarity scores."
-	if mcpReranker != nil {
+	if mcpSearch.HasReranker() {
 		searchDesc += " Uses cross-encoder reranking for improved relevance."
 	}
 	mcp.AddTool(server, &mcp.Tool{
@@ -125,15 +106,12 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		Description: searchDesc,
 	}, handleSearch)
 
-	// Register list_documents tool
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_documents",
 		Description: "List all indexed documents with their titles and file paths.",
 	}, handleListDocuments)
 
-	// Start server on stdio
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
-		// Context cancellation is expected on shutdown
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -144,138 +122,45 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 }
 
 func handleSearch(ctx context.Context, req *mcp.CallToolRequest, input SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
-	// Validate query
-	if input.Query == "" {
-		return nil, SearchOutput{}, fmt.Errorf("query parameter is required")
-	}
-
-	// Check embedder is initialized
-	if mcpEmbedder == nil {
-		return nil, SearchOutput{}, fmt.Errorf("embedder not initialized")
-	}
-
-	// Set default and clamp limit
-	limit := input.Limit
-	if limit == 0 {
-		limit = DefaultSearchLimit
-	}
-	if limit > MaxSearchLimit {
-		limit = MaxSearchLimit
-	}
-	if limit < MinSearchLimit {
-		limit = MinSearchLimit
-	}
-
-	// Determine if we should rerank
-	// Default: rerank if available
-	useRerank := mcpReranker != nil
-	if input.Rerank != nil {
-		useRerank = *input.Rerank && mcpReranker != nil
-	}
-
-	// Set candidates count (only relevant when reranking)
-	candidates := input.Candidates
-	if candidates == 0 {
-		candidates = DefaultCandidates
-	}
-	if candidates > MaxCandidates {
-		candidates = MaxCandidates
-	}
-	if candidates < MinCandidates {
-		candidates = MinCandidates
-	}
-
-	// How many to fetch from vector search
-	fetchCount := limit
-	if useRerank {
-		fetchCount = candidates
-	}
-
-	// Embed the query
-	embedStart := time.Now()
-	embeddings, err := mcpEmbedder.Embed([]string{input.Query})
+	result, err := mcpSearch.Search(ctx, search.Params{
+		Query:      input.Query,
+		Limit:      input.Limit,
+		Candidates: input.Candidates,
+		Rerank:     input.Rerank,
+	})
 	if err != nil {
-		return nil, SearchOutput{}, fmt.Errorf("failed to embed query: %w", err)
-	}
-	logger.Debug("query embedded", "duration", time.Since(embedStart))
-
-	if len(embeddings) == 0 {
-		return nil, SearchOutput{}, fmt.Errorf("no embedding generated for query")
+		return nil, SearchOutput{}, err
 	}
 
-	// Vector search
-	searchStart := time.Now()
-	vectorResults, err := mcpStore.Search(ctx, embeddings[0], fetchCount)
-	if err != nil {
-		return nil, SearchOutput{}, fmt.Errorf("search failed: %w", err)
-	}
-	logger.Debug("vector search completed", "results", len(vectorResults), "duration", time.Since(searchStart))
-
-	if len(vectorResults) == 0 {
+	if len(result.Items) == 0 {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "No results found."}},
 		}, SearchOutput{Results: "No results found."}, nil
 	}
 
-	// Format results - either reranked or vector-only
-	var output string
-	if useRerank && len(vectorResults) > 0 {
-		// Rerank results
-		rerankStart := time.Now()
-		rerankedResults, err := mcpReranker.Rerank(input.Query, vectorResults)
-		if err != nil {
-			logger.Warn("reranking failed, falling back to vector results", "error", err)
-			// Fall back to vector results
-			output = formatVectorResults(input.Query, vectorResults, limit)
-		} else {
-			logger.Debug("reranking completed", "results", len(rerankedResults), "duration", time.Since(rerankStart))
-			output = formatRerankedResults(input.Query, rerankedResults, limit)
-		}
-	} else {
-		output = formatVectorResults(input.Query, vectorResults, limit)
-	}
-
+	output := formatResults(result)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: output}},
 	}, SearchOutput{Results: output}, nil
 }
 
-// formatVectorResults formats vector search results (no reranking).
-func formatVectorResults(query string, results []store.SearchResult, limit int) string {
-	if limit > len(results) {
-		limit = len(results)
-	}
-	results = results[:limit]
-
-	var output string
-	output += fmt.Sprintf("Found %d results for: %q\n\n", len(results), query)
-
-	for i, r := range results {
-		similarity := (1.0 - r.Distance) * 100
-		output += fmt.Sprintf("## Result %d (%.1f%% similar)\n", i+1, similarity)
-		output += fmt.Sprintf("**File:** %s:%d\n", r.FilePath, r.StartLine)
-		output += fmt.Sprintf("**Section:** %s\n\n", r.HeadingPath)
-		output += fmt.Sprintf("```\n%s\n```\n\n", r.Content)
+func formatResults(result *search.Result) string {
+	suffix := ""
+	if result.Reranked {
+		suffix = " (reranked)"
 	}
 
-	return output
-}
+	output := fmt.Sprintf("Found %d results for: %q%s\n\n", len(result.Items), result.Query, suffix)
 
-// formatRerankedResults formats reranked search results.
-func formatRerankedResults(query string, results []reranker.ScoredResult, limit int) string {
-	if limit > len(results) {
-		limit = len(results)
-	}
-	results = results[:limit]
-
-	var output string
-	output += fmt.Sprintf("Found %d results for: %q (reranked)\n\n", len(results), query)
-
-	for i, r := range results {
-		output += fmt.Sprintf("## Result %d (relevance: %.2f)\n", i+1, r.Score)
-		output += fmt.Sprintf("**File:** %s:%d\n", r.Result.FilePath, r.Result.StartLine)
-		output += fmt.Sprintf("**Section:** %s\n\n", r.Result.HeadingPath)
-		output += fmt.Sprintf("```\n%s\n```\n\n", r.Result.Content)
+	for i, item := range result.Items {
+		if result.Reranked {
+			output += fmt.Sprintf("## Result %d (relevance: %.2f)\n", i+1, item.Score)
+		} else {
+			output += fmt.Sprintf("## Result %d (%.1f%% similar)\n", i+1, item.Score*100)
+		}
+		output += fmt.Sprintf("**File:** %s:%d\n", item.FilePath, item.StartLine)
+		output += fmt.Sprintf("**Section:** %s\n\n", item.HeadingPath)
+		output += fmt.Sprintf("```\n%s\n```\n\n", item.Content)
 	}
 
 	return output

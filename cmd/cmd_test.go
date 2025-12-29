@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"mcpmydocs/internal/embedder"
+	"mcpmydocs/internal/search"
 	"mcpmydocs/internal/store"
 )
 
@@ -171,14 +172,14 @@ func setupTestMCPEnvironment(t *testing.T) (func(), string) {
 
 	// Set global store for handlers
 	mcpStore = st
+	mcpSearch = nil
 
 	cleanup := func() {
 		if mcpStore != nil {
 			mcpStore.Close()
 		}
 		mcpStore = nil
-		mcpEmbedder = nil
-		mcpReranker = nil
+		mcpSearch = nil
 		os.RemoveAll(tmpDir)
 	}
 
@@ -252,6 +253,9 @@ func TestHandleSearch_EmptyQuery(t *testing.T) {
 	cleanup, _ := setupTestMCPEnvironment(t)
 	defer cleanup()
 
+	// Create a search service with nil embedder
+	mcpSearch = search.New(mcpStore, nil, nil)
+
 	ctx := context.Background()
 	req := &mcp.CallToolRequest{}
 	input := SearchInput{Query: ""}
@@ -266,7 +270,9 @@ func TestHandleSearch_NoEmbedder(t *testing.T) {
 	cleanup, _ := setupTestMCPEnvironment(t)
 	defer cleanup()
 
-	// mcpEmbedder is nil
+	// mcpSearch with nil embedder
+	mcpSearch = search.New(mcpStore, nil, nil)
+
 	ctx := context.Background()
 	req := &mcp.CallToolRequest{}
 	input := SearchInput{Query: "test query"}
@@ -297,7 +303,7 @@ func TestHandleSearch_LimitClamping(t *testing.T) {
 	if err != nil {
 		t.Skip("ONNX model not available, skipping search test")
 	}
-	mcpEmbedder = emb
+	mcpSearch = search.New(mcpStore, emb, nil)
 
 	ctx := context.Background()
 
@@ -354,7 +360,7 @@ func TestHandleSearch_NoResults(t *testing.T) {
 	if err != nil {
 		t.Skip("ONNX model not available, skipping search test")
 	}
-	mcpEmbedder = emb
+	mcpSearch = search.New(mcpStore, emb, nil)
 
 	ctx := context.Background()
 	req := &mcp.CallToolRequest{}
@@ -374,4 +380,3 @@ func TestHandleSearch_NoResults(t *testing.T) {
 		t.Errorf("expected 'No results found.', got %q", output.Results)
 	}
 }
-
