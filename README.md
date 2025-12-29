@@ -1,6 +1,7 @@
 # mcpmydocs
 
 [![CI](https://github.com/mattdennewitz/mcpmydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/mattdennewitz/mcpmydocs/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mattdennewitz/mcpmydocs)](https://goreportcard.com/report/github.com/mattdennewitz/mcpmydocs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A local-first semantic search engine for Markdown documentation. Indexes your docs, generates embeddings using ONNX models, stores them in DuckDB, and exposes search via CLI or MCP server for AI agents like Claude Code.
