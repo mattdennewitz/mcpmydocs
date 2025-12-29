@@ -115,3 +115,44 @@ func ResolveModelPath() (string, error) {
 
 	return "", fmt.Errorf("model file 'embed.onnx' not found. Set MCPMYDOCS_MODEL_PATH or ensure 'assets' directory is near the executable")
 }
+
+// ResolveRerankerModelPath attempts to find the reranker model file.
+// Returns empty string if not found (reranker is optional).
+func ResolveRerankerModelPath() string {
+	// 1. Environment variable
+	if envPath := os.Getenv("MCPMYDOCS_RERANKER_PATH"); envPath != "" {
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath
+		}
+	}
+
+	// 2. Executable relative (Deployment)
+	exe, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exe)
+
+		// Check "assets/models/rerank.onnx" next to binary
+		path := filepath.Join(exeDir, "assets", "models", "rerank.onnx")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+
+		// Check "../assets/models/rerank.onnx" (if binary is in bin/)
+		path = filepath.Join(exeDir, "..", "assets", "models", "rerank.onnx")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	// 3. CWD (Development fallback)
+	cwd, err := os.Getwd()
+	if err == nil {
+		path := filepath.Join(cwd, "assets", "models", "rerank.onnx")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	// Reranker is optional - return empty string if not found
+	return ""
+}

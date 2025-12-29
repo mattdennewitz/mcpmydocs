@@ -178,6 +178,7 @@ func setupTestMCPEnvironment(t *testing.T) (func(), string) {
 		}
 		mcpStore = nil
 		mcpEmbedder = nil
+		mcpReranker = nil
 		os.RemoveAll(tmpDir)
 	}
 

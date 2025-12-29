@@ -230,3 +230,94 @@ func TestResolveModelPath_NotFound(t *testing.T) {
 	}
 }
 
+func TestResolveRerankerModelPath_EnvVar(t *testing.T) {
+	tmpDir := t.TempDir()
+	fakePath := filepath.Join(tmpDir, "rerank.onnx")
+	if err := os.WriteFile(fakePath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldEnv := os.Getenv("MCPMYDOCS_RERANKER_PATH")
+	defer os.Setenv("MCPMYDOCS_RERANKER_PATH", oldEnv)
+
+	t.Run("valid env var", func(t *testing.T) {
+		os.Setenv("MCPMYDOCS_RERANKER_PATH", fakePath)
+
+		result := ResolveRerankerModelPath()
+		if result != fakePath {
+			t.Errorf("expected %s, got %s", fakePath, result)
+		}
+	})
+
+	t.Run("invalid env var returns empty", func(t *testing.T) {
+		os.Setenv("MCPMYDOCS_RERANKER_PATH", "/nonexistent/rerank.onnx")
+
+		result := ResolveRerankerModelPath()
+		// Should return empty (or find it elsewhere) - reranker is optional
+		if result == "/nonexistent/rerank.onnx" {
+			t.Error("should not return invalid env path")
+		}
+	})
+}
+
+func TestResolveRerankerModelPath_CWDFallback(t *testing.T) {
+	// Save current dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+
+	// Clear env var
+	oldEnv := os.Getenv("MCPMYDOCS_RERANKER_PATH")
+	defer os.Setenv("MCPMYDOCS_RERANKER_PATH", oldEnv)
+	os.Unsetenv("MCPMYDOCS_RERANKER_PATH")
+
+	// Create temp dir with assets/models/rerank.onnx
+	tmpDir := t.TempDir()
+	modelDir := filepath.Join(tmpDir, "assets", "models")
+	if err := os.MkdirAll(modelDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	modelPath := filepath.Join(modelDir, "rerank.onnx")
+	if err := os.WriteFile(modelPath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Change to temp dir
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	result := ResolveRerankerModelPath()
+	if filepath.Base(result) != "rerank.onnx" {
+		t.Errorf("expected rerank.onnx, got %s", result)
+	}
+}
+
+func TestResolveRerankerModelPath_NotFound(t *testing.T) {
+	// Save current dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+
+	// Clear env var
+	oldEnv := os.Getenv("MCPMYDOCS_RERANKER_PATH")
+	defer os.Setenv("MCPMYDOCS_RERANKER_PATH", oldEnv)
+	os.Unsetenv("MCPMYDOCS_RERANKER_PATH")
+
+	// Change to empty temp dir
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	result := ResolveRerankerModelPath()
+	// Reranker is optional - should return empty string, not error
+	if result != "" {
+		t.Errorf("expected empty string when reranker not found, got %s", result)
+	}
+}
+

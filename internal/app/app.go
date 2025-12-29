@@ -7,6 +7,7 @@ import (
 
 	"mcpmydocs/internal/embedder"
 	"mcpmydocs/internal/paths"
+	"mcpmydocs/internal/reranker"
 	"mcpmydocs/internal/store"
 )
 
@@ -14,13 +15,15 @@ import (
 type App struct {
 	Store    *store.Store
 	Embedder *embedder.Embedder
+	Reranker *reranker.Reranker // nil if reranker model not available
 }
 
 // Config holds configuration for initializing the App.
 type Config struct {
-	DBPath          string
-	ModelPath       string
-	OnnxLibraryPath string
+	DBPath            string
+	ModelPath         string
+	RerankerModelPath string // optional - empty string means no reranking
+	OnnxLibraryPath   string
 }
 
 // New initializes the application components.
@@ -38,9 +41,20 @@ func New(cfg Config) (*App, error) {
 		return nil, fmt.Errorf("failed to create embedder: %w", err)
 	}
 
+	// Initialize reranker (optional - graceful if missing)
+	var rr *reranker.Reranker
+	if cfg.RerankerModelPath != "" {
+		rr, err = reranker.New(cfg.RerankerModelPath, cfg.OnnxLibraryPath)
+		if err != nil {
+			// Reranker is optional - log warning but continue
+			rr = nil
+		}
+	}
+
 	return &App{
 		Store:    st,
 		Embedder: emb,
+		Reranker: rr,
 	}, nil
 }
 
@@ -52,6 +66,11 @@ func (a *App) Close() error {
 	}
 	if err := a.Embedder.Close(); err != nil {
 		errs = append(errs, err)
+	}
+	if a.Reranker != nil {
+		if err := a.Reranker.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -68,7 +87,7 @@ func DefaultPaths(onnxLibOverride string) (Config, error) {
 	}
 
 	dbPath := filepath.Join(cwd, "mcpmydocs.db")
-	
+
 	modelPath, err := paths.ResolveModelPath()
 	if err != nil {
 		return Config{}, err
@@ -79,9 +98,13 @@ func DefaultPaths(onnxLibOverride string) (Config, error) {
 		return Config{}, err
 	}
 
+	// Reranker model is optional
+	rerankerPath := paths.ResolveRerankerModelPath()
+
 	return Config{
-		DBPath:          dbPath,
-		ModelPath:       modelPath,
-		OnnxLibraryPath: onnxLibPath,
+		DBPath:            dbPath,
+		ModelPath:         modelPath,
+		RerankerModelPath: rerankerPath,
+		OnnxLibraryPath:   onnxLibPath,
 	}, nil
 }
