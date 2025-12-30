@@ -2,9 +2,45 @@
 
 [![CI](https://github.com/mattdennewitz/mcpmydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/mattdennewitz/mcpmydocs/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/mattdennewitz/mcpmydocs)](https://goreportcard.com/report/github.com/mattdennewitz/mcpmydocs)
+[![GitHub Release](https://img.shields.io/github/v/release/mattdennewitz/mcpmydocs)](https://github.com/mattdennewitz/mcpmydocs/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A local-first semantic search engine for Markdown documentation. Indexes your docs, generates embeddings using ONNX models, stores them in DuckDB, and exposes search via CLI or MCP server for AI agents like Claude Code.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Integrating with Claude Code](#integrating-with-claude-code)
+- [How it works](#how-it-works)
+- [Project structure](#project-structure)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
+## Quick Start
+
+```bash
+# Install mcpmydocs and models
+curl -sSL https://raw.githubusercontent.com/mattdennewitz/mcpmydocs/main/install.sh | bash
+
+# Install ONNX Runtime
+brew install onnxruntime  # macOS
+# Linux: see Installation section for instructions
+
+# Index your documentation
+mcpmydocs index ~/Documents/wiki
+
+# Search
+mcpmydocs search "how to configure authentication"
+```
+
+> **Note:** A `Brewfile` is included for macOS users building from source—run `brew bundle` to install all dependencies.
 
 ## Features
 
@@ -33,7 +69,7 @@ curl -sSL https://raw.githubusercontent.com/mattdennewitz/mcpmydocs/main/install
 This will:
 - Download the latest release for your platform
 - Install the binary to `~/.local/bin`
-- Download the embedding and reranker models to `~/.local/share/mcpmydocs`
+- Download the embedding and reranker models to `~/.local/share/mcpmydocs/models/`
 
 **Note:** You still need ONNX Runtime installed (see below).
 
@@ -84,10 +120,6 @@ The application automatically searches for models in:
 2. `assets/models/` relative to the binary
 3. `assets/models/` in the current working directory
 
-You can override with environment variables if needed:
-- `MCPMYDOCS_MODEL_PATH` - path to embed.onnx
-- `MCPMYDOCS_RERANKER_PATH` - path to rerank.onnx
-
 #### 3. Verify installation
 
 ```bash
@@ -101,7 +133,7 @@ Requires Go 1.24+ and Homebrew (macOS).
 #### 1. Clone and build
 
 ```bash
-git clone https://github.com/yourusername/mcpmydocs.git
+git clone https://github.com/mattdennewitz/mcpmydocs.git
 cd mcpmydocs
 make all
 ```
@@ -115,23 +147,44 @@ This will:
 #### 2. Verify installation
 
 ```bash
-./dist/mcpmydocs --help
+mcpmydocs --help
 ```
 
+## Configuration
+
+### Database location
+
+The database file `mcpmydocs.db` is created in the current working directory by default. Use the `--db` flag to specify a custom path:
+
+```bash
+mcpmydocs index ~/Documents/wiki --db ~/data/mcpmydocs.db
+mcpmydocs search "query" --db ~/data/mcpmydocs.db
+```
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `ONNX_LIBRARY_PATH` | Path to the ONNX Runtime library (if not in standard locations) |
+| `MCPMYDOCS_MODEL_PATH` | Path to `embed.onnx` embedding model |
+| `MCPMYDOCS_RERANKER_PATH` | Path to `rerank.onnx` reranker model |
+
 ## Usage
+
+> **Note:** Examples below assume `mcpmydocs` is in your PATH. If you built from source, use `mcpmydocs` instead.
 
 ### Index a directory
 
 Index all Markdown files in a directory:
 
 ```bash
-./dist/mcpmydocs index ~/Documents/wiki
+mcpmydocs index ~/Documents/wiki
 ```
 
 Example output:
 ```
-Indexing directory: /Users/matt/Documents/wiki
-Database: /Users/matt/src/mcpmydocs/mcpmydocs.db
+Indexing directory: /home/user/docs
+Database: /home/user/docs/mcpmydocs.db
 [247/247] guides/advanced-configuration.md
 Indexing complete!
   Indexed: 247 files
@@ -148,7 +201,7 @@ Indexing complete!
 ### Search from CLI
 
 ```bash
-./dist/mcpmydocs search "how to configure authentication"
+mcpmydocs search "how to configure authentication"
 ```
 
 Example output (with reranking enabled by default):
@@ -157,7 +210,7 @@ Found 5 results for: "how to configure authentication" (reranked)
 
 ─────────────────────────────────────────────────────────────
 [1] # Authentication > ## OAuth Setup (relevance: 2.15)
-    File: /Users/matt/Documents/wiki/auth/oauth.md:15
+    File: /home/user/docs/auth/oauth.md:15
 
     OAuth Setup
 
@@ -168,7 +221,7 @@ Found 5 results for: "how to configure authentication" (reranked)
 
 ─────────────────────────────────────────────────────────────
 [2] # Security > ## API Keys (relevance: 1.82)
-    File: /Users/matt/Documents/wiki/security/api-keys.md:8
+    File: /home/user/docs/security/api-keys.md:8
 
     API Keys
 
@@ -178,13 +231,13 @@ Found 5 results for: "how to configure authentication" (reranked)
 Options:
 ```bash
 # Return more results
-./dist/mcpmydocs search "database migrations" -n 10
+mcpmydocs search "database migrations" -n 10
 
 # Disable reranking (faster, uses vector similarity only)
-./dist/mcpmydocs search "quick lookup" --no-rerank
+mcpmydocs search "quick lookup" --no-rerank
 
 # Adjust candidate pool for reranking (default: 50)
-./dist/mcpmydocs search "detailed query" --candidates 100
+mcpmydocs search "detailed query" --candidates 100
 ```
 
 ### Run as MCP server
@@ -192,22 +245,23 @@ Options:
 Start the MCP server for integration with AI tools:
 
 ```bash
-./dist/mcpmydocs run
+mcpmydocs run
 ```
 
 The server communicates via stdio using JSON-RPC 2.0 (the MCP protocol).
 
 ## Integrating with Claude Code
 
-### Option 1: Wrapper script (recommended)
-
-Create a wrapper script that sets the working directory:
+Create a wrapper script that sets the working directory, then register it with Claude Code:
 
 ```bash
-# Create the script
-cat > ~/bin/mcpmydocs-server << 'EOF'
+# Create the script (adjust MCPMYDOCS_DIR to your install location)
+MCPMYDOCS_DIR="$HOME/.local/share/mcpmydocs"
+
+mkdir -p ~/bin
+cat > ~/bin/mcpmydocs-server << EOF
 #!/bin/bash
-cd /Users/matt/src/mcpmydocs && ./dist/mcpmydocs run
+cd $MCPMYDOCS_DIR && mcpmydocs run
 EOF
 
 chmod +x ~/bin/mcpmydocs-server
@@ -216,37 +270,36 @@ chmod +x ~/bin/mcpmydocs-server
 claude mcp add --transport stdio mcpmydocs -- ~/bin/mcpmydocs-server
 ```
 
-### Option 2: Edit settings.json directly
-
-Edit `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "mcpmydocs": {
-      "command": "/Users/matt/src/mcpmydocs/dist/mcpmydocs",
-      "args": ["run"],
-      "cwd": "/Users/matt/src/mcpmydocs"
-    }
-  }
-}
-```
+The wrapper script is necessary because the MCP server needs to run from a directory containing the database and models.
 
 ### Available MCP tools
 
 Once connected, Claude Code has access to:
 
-| Tool | Description |
-|------|-------------|
-| `search` | Semantic search with cross-encoder reranking. Parameters: `query` (required), `limit` (default 5, max 20), `rerank` (default true), `candidates` (default 50, max 100) |
-| `list_documents` | List all indexed documents with titles and paths |
+#### `search`
 
-Example usage in Claude Code:
-```
-> Search my docs for information about database migrations
+Semantic search with cross-encoder reranking.
 
-Claude will use the search tool and return relevant documentation snippets.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | (required) | The search query |
+| `limit` | integer | 5 | Number of results to return (max 20) |
+| `rerank` | boolean | true | Enable cross-encoder reranking |
+| `candidates` | integer | 50 | Candidate pool size for reranking (max 100) |
+
+#### `list_documents`
+
+List all indexed documents with titles and paths. No parameters.
+
+### Example usage in Claude Code
+
+Ask Claude Code to search your indexed documentation:
+
 ```
+Search my docs for information about database migrations
+```
+
+Claude will automatically use the `search` tool and return relevant documentation snippets.
 
 ## How it works
 
@@ -262,12 +315,16 @@ Claude will use the search tool and return relevant documentation snippets.
 ```
 mcpmydocs/
 ├── cmd/
+│   ├── config.go     # CLI configuration
 │   ├── index.go      # Index command
-│   ├── search.go     # Search command
-│   └── run.go        # MCP server command
+│   ├── run.go        # MCP server command
+│   └── search.go     # Search command
 ├── internal/
+│   ├── app/          # Application initialization
 │   ├── chunker/      # Markdown chunking logic
 │   ├── embedder/     # ONNX embedding generation
+│   ├── logger/       # Logging utilities
+│   ├── paths/        # Path resolution for models
 │   ├── reranker/     # Cross-encoder reranking
 │   ├── search/       # Unified search service
 │   └── store/        # DuckDB storage layer
@@ -277,15 +334,6 @@ mcpmydocs/
 ├── Brewfile
 └── main.go
 ```
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `mcpmydocs.db` | DuckDB database with indexed documents and embeddings |
-| `assets/models/embed.onnx` | Embedding model (~90MB) |
-| `assets/models/rerank.onnx` | Reranker model (~90MB) |
-| `assets/models/tokenizer.json` | WordPiece tokenizer vocabulary |
 
 ## Development
 
@@ -303,13 +351,24 @@ make clean
 go test ./...
 ```
 
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Run tests before submitting (`go test ./...`)
+4. Submit a pull request
+
+For bugs or feature requests, please [open an issue](https://github.com/mattdennewitz/mcpmydocs/issues).
+
 ## Troubleshooting
 
 ### "database not found" error
 
 Run the index command first:
 ```bash
-./dist/mcpmydocs index /path/to/your/docs
+mcpmydocs index /path/to/your/docs
 ```
 
 ### Poor search results
@@ -327,9 +386,9 @@ If search results show similarity percentages instead of relevance scores, the r
 
 ### MCP server not connecting
 
-1. Ensure the `cwd` is set correctly (the server needs access to `mcpmydocs.db` and `assets/models/`)
+1. Ensure the wrapper script runs from a directory containing `mcpmydocs.db` and the models
 2. Check Claude Code logs: `~/.claude/logs/`
-3. Test the server directly: `echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{}}' | ./dist/mcpmydocs run`
+3. Test the server directly: `echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{}}' | mcpmydocs run`
 
 ## License
 
