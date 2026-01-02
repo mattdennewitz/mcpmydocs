@@ -261,6 +261,8 @@ MCPMYDOCS_DIR="$HOME/.local/share/mcpmydocs"
 mkdir -p ~/bin
 cat > ~/bin/mcpmydocs-server << EOF
 #!/bin/bash
+pkill -f "mcpmydocs run" 2>/dev/null
+sleep 0.5
 cd $MCPMYDOCS_DIR && mcpmydocs run
 EOF
 
