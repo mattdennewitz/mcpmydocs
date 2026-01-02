@@ -1,7 +1,7 @@
 # mcpmydocs
 
 [![CI](https://github.com/mattdennewitz/mcpmydocs/actions/workflows/ci.yml/badge.svg)](https://github.com/mattdennewitz/mcpmydocs/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mattdennewitz/mcpmydocs?v=0.3.0)](https://goreportcard.com/report/github.com/mattdennewitz/mcpmydocs)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mattdennewitz/mcpmydocs?v=0.3.1)](https://goreportcard.com/report/github.com/mattdennewitz/mcpmydocs)
 [![GitHub Release](https://img.shields.io/github/v/release/mattdennewitz/mcpmydocs)](https://github.com/mattdennewitz/mcpmydocs/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

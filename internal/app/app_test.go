@@ -161,6 +161,7 @@ func TestConfig_Fields(t *testing.T) {
 		DBPath:          "/path/to/db",
 		ModelPath:       "/path/to/model",
 		OnnxLibraryPath: "/path/to/lib",
+		ReadOnly:        true,
 	}
 
 	if cfg.DBPath != "/path/to/db" {
@@ -171,6 +172,59 @@ func TestConfig_Fields(t *testing.T) {
 	}
 	if cfg.OnnxLibraryPath != "/path/to/lib" {
 		t.Error("OnnxLibraryPath not set correctly")
+	}
+	if !cfg.ReadOnly {
+		t.Error("ReadOnly not set correctly")
+	}
+}
+
+// TestNew_ReadOnly tests that ReadOnly config uses read-only store.
+// This test is skipped if the required model/library files are not present.
+func TestNew_ReadOnly(t *testing.T) {
+	cfg, err := DefaultPaths("")
+	if err != nil {
+		t.Skipf("skipping test: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// First create a database with read-write mode
+	cfg.DBPath = dbPath
+	cfg.ReadOnly = false
+	rwApp, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create read-write app: %v", err)
+	}
+	rwApp.Close()
+
+	// Now open in read-only mode
+	cfg.ReadOnly = true
+	roApp, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create read-only app: %v", err)
+	}
+	defer roApp.Close()
+
+	if roApp.Store == nil {
+		t.Error("Store is nil in read-only app")
+	}
+}
+
+// TestNew_ReadOnly_NonexistentDB tests that ReadOnly fails for non-existent DB.
+func TestNew_ReadOnly_NonexistentDB(t *testing.T) {
+	cfg, err := DefaultPaths("")
+	if err != nil {
+		t.Skipf("skipping test: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	cfg.DBPath = filepath.Join(tmpDir, "nonexistent.db")
+	cfg.ReadOnly = true
+
+	_, err = New(cfg)
+	if err == nil {
+		t.Error("expected error when opening non-existent DB in read-only mode")
 	}
 }
 

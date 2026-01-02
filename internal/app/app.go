@@ -25,12 +25,19 @@ type Config struct {
 	ModelPath         string
 	RerankerModelPath string // optional - empty string means no reranking
 	OnnxLibraryPath   string
+	ReadOnly          bool // open database in read-only mode to avoid lock conflicts
 }
 
 // New initializes the application components.
 func New(cfg Config) (*App, error) {
 	// Initialize store
-	st, err := store.New(cfg.DBPath)
+	var st *store.Store
+	var err error
+	if cfg.ReadOnly {
+		st, err = store.NewReadOnly(cfg.DBPath)
+	} else {
+		st, err = store.New(cfg.DBPath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

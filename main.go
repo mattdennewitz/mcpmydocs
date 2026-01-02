@@ -12,7 +12,7 @@ import (
 
 var (
 	// Version is set during build via -ldflags
-	Version = "0.3.0"
+	Version = "0.3.1"
 
 	// verbose enables debug logging
 	verbose bool

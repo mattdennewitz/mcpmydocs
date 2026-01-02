@@ -62,6 +62,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", cfg.DBPath)
 	}
 
+	// Use read-only mode to allow multiple concurrent MCP server instances
+	cfg.ReadOnly = true
 	application, err := app.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize application: %w", err)
@@ -94,7 +96,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "mcpmydocs",
-		Version: "0.3.0",
+		Version: "0.3.1",
 	}, nil)
 
 	searchDesc := "Search indexed markdown documents using semantic similarity. Returns relevant chunks with file paths and similarity scores."

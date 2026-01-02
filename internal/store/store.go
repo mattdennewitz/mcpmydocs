@@ -32,6 +32,23 @@ func New(dbPath string) (*Store, error) {
 	return store, nil
 }
 
+// NewReadOnly opens the database in read-only mode.
+// This allows multiple concurrent readers without lock conflicts.
+func NewReadOnly(dbPath string) (*Store, error) {
+	db, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open duckdb in read-only mode: %w", err)
+	}
+
+	// Load VSS extension for search (required even in read-only mode)
+	if _, err := db.ExecContext(context.Background(), "LOAD vss"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to load vss extension: %w", err)
+	}
+
+	return &Store{db: db}, nil
+}
+
 func (s *Store) initialize() error {
 	ctx := context.Background()
 

@@ -49,6 +49,8 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("database not found at %s. Run 'mcpmydocs index' first", cfg.DBPath)
 	}
 
+	// Use read-only mode to allow concurrent searches without lock conflicts
+	cfg.ReadOnly = true
 	application, err := app.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize application: %w", err)

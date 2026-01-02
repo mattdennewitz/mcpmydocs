@@ -713,7 +713,267 @@ func TestSearch_ScanErrorHandling(t *testing.T) {
 	}
 }
 
+// setupPopulatedTestDB creates a temporary database with sample data for testing.
+// Returns the database path and a sample embedding.
+// The database is closed after population, ready for read-only access.
+func setupPopulatedTestDB(t *testing.T) (dbPath string, embedding []float32) {
+	t.Helper()
+
+	dbPath = filepath.Join(t.TempDir(), "test.db")
+	ctx := context.Background()
+
+	rwStore, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	docID, err := rwStore.InsertDocument(ctx, "/doc.md", "hash", "Test Document")
+	if err != nil {
+		rwStore.Close()
+		t.Fatalf("InsertDocument failed: %v", err)
+	}
+
+	embedding = make([]float32, EmbeddingDim)
+	for i := range embedding {
+		embedding[i] = 0.5
+	}
+
+	chunk := Chunk{HeadingPath: "# Test", HeadingLevel: 1, Content: "Test content", StartLine: 1}
+	if err := rwStore.InsertChunk(ctx, docID, chunk, embedding); err != nil {
+		rwStore.Close()
+		t.Fatalf("InsertChunk failed: %v", err)
+	}
+
+	rwStore.Close()
+
+	return dbPath, embedding
+}
+func TestNewReadOnly(t *testing.T) {
+	dbPath, _ := setupPopulatedTestDB(t)
+
+	roStore, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly failed: %v", err)
+	}
+	defer roStore.Close()
+
+	if roStore == nil {
+		t.Fatal("NewReadOnly returned nil store")
+	}
+	if roStore.db == nil {
+		t.Fatal("roStore.db is nil")
+	}
+}
+
+func TestNewReadOnly_NonexistentDB(t *testing.T) {
+	_, err := NewReadOnly("/nonexistent/path/to/db.db")
+	if err == nil {
+		t.Error("expected error for non-existent database, got nil")
+	}
+}
+
+func TestNewReadOnly_CanSearch(t *testing.T) {
+	dbPath, embedding := setupPopulatedTestDB(t)
+
+	roStore, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly failed: %v", err)
+	}
+	defer roStore.Close()
+
+	ctx := context.Background()
+	results, err := roStore.Search(ctx, embedding, 10)
+	if err != nil {
+		t.Fatalf("Search in read-only mode failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Content != "Test content" {
+		t.Errorf("unexpected content: %q", results[0].Content)
+	}
+}
+
+func TestNewReadOnly_CanListDocuments(t *testing.T) {
+	dbPath, _ := setupPopulatedTestDB(t)
+
+	roStore, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly failed: %v", err)
+	}
+	defer roStore.Close()
+
+	ctx := context.Background()
+	docs, err := roStore.ListDocuments(ctx)
+	if err != nil {
+		t.Fatalf("ListDocuments in read-only mode failed: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Errorf("expected 1 document, got %d", len(docs))
+	}
+}
+
+func TestNewReadOnly_CannotWrite(t *testing.T) {
+	dbPath, _ := setupPopulatedTestDB(t)
+
+	roStore, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly failed: %v", err)
+	}
+	defer roStore.Close()
+
+	ctx := context.Background()
+	_, err = roStore.InsertDocument(ctx, "/new.md", "hash", "New Doc")
+	if err == nil {
+		t.Error("expected error when writing to read-only store, got nil")
+	}
+}
+
+func TestConcurrentReadOnlyAccess(t *testing.T) {
+	dbPath, embedding := setupPopulatedTestDB(t)
+
+	ctx := context.Background()
+
+	// Open multiple read-only connections concurrently
+	const numReaders = 5
+	stores := make([]*Store, numReaders)
+	for i := 0; i < numReaders; i++ {
+		s, err := NewReadOnly(dbPath)
+		if err != nil {
+			t.Fatalf("NewReadOnly %d failed: %v", i, err)
+		}
+		stores[i] = s
+	}
+	defer func() {
+		for _, s := range stores {
+			s.Close()
+		}
+	}()
+
+	// All should be able to search concurrently without lock conflicts
+	errChan := make(chan error, numReaders)
+	for i := 0; i < numReaders; i++ {
+		go func(s *Store) {
+			for j := 0; j < 10; j++ {
+				_, err := s.Search(ctx, embedding, 10)
+				if err != nil {
+					errChan <- err
+					return
+				}
+			}
+			errChan <- nil
+		}(stores[i])
+	}
+
+	for i := 0; i < numReaders; i++ {
+		if err := <-errChan; err != nil {
+			t.Errorf("concurrent search failed: %v", err)
+		}
+	}
+}
+
+// TestConcurrentReadWhileWriting tests that read-only connections can search
+// while a separate write connection is actively indexing. This is the primary
+// use case: MCP server searching while indexer runs in the background.
+func TestConcurrentReadWhileWriting(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	ctx := context.Background()
+
+	// Create initial database with one document
+	rwStore, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	embedding := make([]float32, EmbeddingDim)
+	for i := range embedding {
+		embedding[i] = 0.5
+	}
+
+	docID, _ := rwStore.InsertDocument(ctx, "/initial.md", "hash0", "Initial Doc")
+	chunk := Chunk{HeadingPath: "# Initial", HeadingLevel: 1, Content: "Initial content", StartLine: 1}
+	rwStore.InsertChunk(ctx, docID, chunk, embedding)
+	rwStore.Close()
+
+	// Open a read-only connection (simulating MCP server)
+	roStore, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly failed: %v", err)
+	}
+	defer roStore.Close()
+
+	// Open a read-write connection (simulating indexer)
+	writerStore, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create writer store: %v", err)
+	}
+	defer writerStore.Close()
+
+	// Run concurrent reads and writes
+	const numIterations = 20
+	readErrors := make(chan error, numIterations)
+	writeErrors := make(chan error, numIterations)
+
+	// Reader goroutine - simulates MCP server searches
+	go func() {
+		for i := 0; i < numIterations; i++ {
+			_, err := roStore.Search(ctx, embedding, 10)
+			if err != nil {
+				readErrors <- fmt.Errorf("search %d failed: %w", i, err)
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		readErrors <- nil
+	}()
+
+	// Writer goroutine - simulates indexer adding documents
+	go func() {
+		for i := 0; i < numIterations; i++ {
+			path := fmt.Sprintf("/doc_%d.md", i)
+			docID, err := writerStore.InsertDocument(ctx, path, fmt.Sprintf("hash%d", i), fmt.Sprintf("Doc %d", i))
+			if err != nil {
+				writeErrors <- fmt.Errorf("insert doc %d failed: %w", i, err)
+				return
+			}
+
+			chunk := Chunk{
+				HeadingPath:  fmt.Sprintf("# Section %d", i),
+				HeadingLevel: 1,
+				Content:      fmt.Sprintf("Content for document %d", i),
+				StartLine:    1,
+			}
+			if err := writerStore.InsertChunk(ctx, docID, chunk, embedding); err != nil {
+				writeErrors <- fmt.Errorf("insert chunk %d failed: %w", i, err)
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		writeErrors <- nil
+	}()
+
+	// Wait for both goroutines
+	if err := <-readErrors; err != nil {
+		t.Errorf("reader error: %v", err)
+	}
+	if err := <-writeErrors; err != nil {
+		t.Errorf("writer error: %v", err)
+	}
+
+	// Verify the reader can still search after all writes complete
+	results, err := roStore.Search(ctx, embedding, 100)
+	if err != nil {
+		t.Fatalf("final search failed: %v", err)
+	}
+	// Note: read-only connection may not see new writes until reopened,
+	// but it should not fail or block
+	if len(results) < 1 {
+		t.Error("expected at least 1 result from final search")
+	}
+}
+
 // Benchmark tests
+
 func BenchmarkInsertDocument(b *testing.B) {
 	tmpDir, _ := os.MkdirTemp("", "mcpmydocs-bench-*")
 	defer os.RemoveAll(tmpDir)
